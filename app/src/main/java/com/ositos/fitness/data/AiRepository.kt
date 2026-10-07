@@ -51,8 +51,9 @@ class AiRepository(private val context: Context) {
         // Freno local (además del freno del servidor) por si algo queda en loop.
         if (usedToday() >= DAILY_LIMIT) throw AiLimitException()
         val b64 = prepareImage(uri)
-        incrementLocal()
         val json = if (BuildConfig.AI_BACKEND == "worker") callWorker(b64) else callFunction(b64)
+        // Solo cuenta para el límite diario si la IA respondió.
+        incrementLocal()
         parse(json)
     }
 
@@ -100,8 +101,17 @@ class AiRepository(private val context: Context) {
             @Suppress("UNCHECKED_CAST")
             return JSONObject(result.getData() as Map<String, Any?>)
         } catch (e: FirebaseFunctionsException) {
-            if (e.code == FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED) throw AiLimitException()
-            throw Exception(e.message ?: "El backend de IA no respondió", e)
+            val msg = when (e.code) {
+                FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED -> throw AiLimitException()
+                FirebaseFunctionsException.Code.NOT_FOUND ->
+                    "La IA de fotos todavía no está activada (falta subir el backend). Mientras tanto, cargala a mano desde 🍽️ Comida."
+                FirebaseFunctionsException.Code.UNAVAILABLE, FirebaseFunctionsException.Code.DEADLINE_EXCEEDED ->
+                    "Sin conexión con la IA. Revisá internet y probá de nuevo."
+                FirebaseFunctionsException.Code.INTERNAL ->
+                    e.message?.takeIf { it != "INTERNAL" } ?: "La IA tuvo un problema. Probá de nuevo en un ratito."
+                else -> e.message ?: "El backend de IA no respondió"
+            }
+            throw Exception(msg, e)
         }
     }
 
