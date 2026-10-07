@@ -1,0 +1,87 @@
+name: Build APK
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: APK debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: google-services.json (secreto o ejemplo)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "✅ Usando el google-services.json del secreto GOOGLE_SERVICES_JSON"
+          else
+            cp ci/google-services.placeholder.json app/google-services.json
+            echo "::warning::No está el secreto GOOGLE_SERVICES_JSON: el APK compila pero muestra 'Falta configurar Firebase'. Ver README."
+          fi
+
+      - name: Tests unitarios (cálculos y gamificación)
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Compilar APK debug
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Huella SHA-1 para Firebase
+        run: |
+          echo "### Huellas del certificado (copialas en Firebase → Configuración del proyecto → Tu app Android)" >> "$GITHUB_STEP_SUMMARY"
+          keytool -list -v -keystore app/debug.keystore -storepass android -alias androiddebugkey \
+            | grep -E "SHA1|SHA256" | sed 's/^\s*/- /' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Renombrar APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk "ositos-fitness-${GITHUB_SHA::7}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ositos-fitness-apk
+          path: ositos-fitness-*.apk
+          retention-days: 30
+
+  backend:
+    name: Backend (Functions + reglas)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cloud Functions (instalar y cargar)
+        working-directory: functions
+        run: |
+          npm ci
+          GCLOUD_PROJECT=ositos-test npm run check
+
+      - name: Reglas de Firestore en el emulador
+        working-directory: firestore-tests
+        run: |
+          npm ci
+          npm test

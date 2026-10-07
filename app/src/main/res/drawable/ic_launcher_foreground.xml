@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Osito: orejas, cabeza, hocico, ojos y nariz -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#6B3E26" android:pathData="M30,40 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
+    <path android:fillColor="#6B3E26" android:pathData="M60,40 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
+    <path android:fillColor="#E8A87C" android:pathData="M34,40 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+    <path android:fillColor="#E8A87C" android:pathData="M64,40 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+    <path android:fillColor="#8B5A3C" android:pathData="M32,57 a22,21 0 1,0 44,0 a22,21 0 1,0 -44,0" />
+    <path android:fillColor="#F3D2B3" android:pathData="M44,64 a10,8 0 1,0 20,0 a10,8 0 1,0 -20,0" />
+    <path android:fillColor="#2B1A12" android:pathData="M42,52 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <path android:fillColor="#2B1A12" android:pathData="M60,52 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <path android:fillColor="#2B1A12" android:pathData="M50,61 a4,3 0 1,0 8,0 a4,3 0 1,0 -8,0" />
+    <path android:fillColor="#FF4F7B" android:pathData="M70,30 c-2,-4 -8,-3 -8,2 c0,4 8,8 8,8 c0,0 8,-4 8,-8 c0,-5 -6,-6 -8,-2z" />
+</vector>

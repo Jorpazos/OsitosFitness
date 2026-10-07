@@ -1,0 +1,119 @@
+rules_version = '2';
+
+// Ositos Fitness: todo vive bajo duos/main y solo lo pueden leer/escribir sus 2 miembros.
+// El primero que entra crea el dúo; el segundo se une solo; un tercero queda afuera.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // OPCIONAL (recomendado): limitá el acceso a sus dos cuentas de Google.
+    // Reemplazá "return true;" por:
+    //   return request.auth.token.email in ['vos@gmail.com', 'tu.pareja@gmail.com'];
+    function emailAllowed() {
+      return true;
+    }
+
+    function signedIn() {
+      return request.auth != null && emailAllowed();
+    }
+
+    function duoPath() {
+      return /databases/$(database)/documents/duos/main;
+    }
+
+    function isMember() {
+      return signedIn() && exists(duoPath()) && request.auth.uid in get(duoPath()).data.members;
+    }
+
+    function onlyChanges(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    function ownsId(id) {
+      return id.matches(request.auth.uid + '_.*');
+    }
+
+    match /duos/main {
+      // Se puede leer si sos miembro, o si todavía hay lugar (para poder unirte).
+      allow get: if signedIn() && (
+        resource == null
+        || request.auth.uid in resource.data.members
+        || resource.data.members.size() < 2
+      );
+
+      // Crear el dúo: el primero se pone a sí mismo como único miembro.
+      allow create: if signedIn() && request.resource.data.members == [request.auth.uid];
+
+      allow update: if signedIn() && (
+        // Unirse: el segundo se agrega a sí mismo y no toca nada más.
+        (
+          resource.data.members.size() == 1
+          && !(request.auth.uid in resource.data.members)
+          && request.resource.data.members == resource.data.members.concat([request.auth.uid])
+          && onlyChanges(['members'])
+        )
+        ||
+        // Miembros: pueden editar listas y marcadores, pero nunca la lista de miembros.
+        (
+          request.auth.uid in resource.data.members
+          && request.resource.data.members == resource.data.members
+        )
+      );
+
+      allow delete: if false;
+
+      match /profiles/{uid} {
+        allow read: if isMember();
+        allow create, update: if isMember() && request.auth.uid == uid;
+        allow delete: if false;
+      }
+
+      match /days/{dayId} {
+        allow read: if isMember();
+        allow create, update: if isMember() && ownsId(dayId)
+          && request.resource.data.uid == request.auth.uid;
+        allow delete: if false;
+      }
+
+      match /weights/{weightId} {
+        allow read: if isMember();
+        allow create, update: if isMember() && ownsId(weightId)
+          && request.resource.data.uid == request.auth.uid;
+        allow delete: if isMember() && ownsId(weightId);
+      }
+
+      match /logs/{logId} {
+        allow read: if isMember();
+        allow create: if isMember() && request.resource.data.uid == request.auth.uid;
+        // Reaccionar a registros (propios o del otro): solo tu propia reacción.
+        allow update: if isMember()
+          && onlyChanges(['reactions'])
+          && request.resource.data.reactions.diff(resource.data.reactions).affectedKeys()
+               .hasOnly([request.auth.uid]);
+        allow delete: if isMember() && resource.data.uid == request.auth.uid;
+      }
+
+      match /weeks/{weekId} {
+        allow read, write: if isMember();
+      }
+
+      match /pokes/{pokeId} {
+        allow read: if isMember();
+        allow create: if isMember() && request.resource.data.from == request.auth.uid
+          && request.resource.data.delivered == false;
+        // Solo quien recibe el pinchazo puede marcarlo como entregado.
+        allow update: if isMember() && resource.data.to == request.auth.uid && onlyChanges(['delivered']);
+        allow delete: if false;
+      }
+
+      // Contador de fotos de IA: solo lo toca la Cloud Function (Admin SDK).
+      match /aiUsage/{id} {
+        allow read, write: if false;
+      }
+    }
+
+    // Todo lo demás, cerrado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

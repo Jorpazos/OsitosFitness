@@ -1,0 +1,21 @@
+# Alternativa GRATIS a Cloud Functions para la IA de fotos (plan Free de Cloudflare Workers).
+name = "ositos-ai"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# ID de tu proyecto de Firebase (Configuración del proyecto → General).
+FIREBASE_PROJECT_ID = "REEMPLAZAR-con-tu-project-id"
+# Mails de Google habilitados, separados por coma. Vacío = cualquier usuario de tu proyecto Firebase.
+ALLOWED_EMAILS = ""
+
+# Opcional: contador de fotos por día en KV (límite de 20). Crealo con:
+#   npx wrangler kv namespace create USAGE
+# y descomentá estas líneas con el id que te devuelve.
+# [[kv_namespaces]]
+# binding = "USAGE"
+# id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# La API key va como secreto (nunca en este archivo):
+#   npx wrangler secret put ANTHROPIC_API_KEY
