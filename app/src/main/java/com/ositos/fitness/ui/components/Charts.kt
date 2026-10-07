@@ -276,15 +276,11 @@ fun WeightChart(
             Spacer(Modifier.weight(1f))
             Text("hoy", style = MaterialTheme.typography.labelSmall, color = labelColor)
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(CircleShape).padding(0.dp))
-            Text(
-                "• puntos: pesajes  — línea: tendencia 7 días  - - objetivo",
-                style = MaterialTheme.typography.labelSmall,
-                color = labelColor,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.width(4.dp))
-        }
+        Text(
+            "• puntos: pesajes  — línea: tendencia 7 días  - - objetivo",
+            style = MaterialTheme.typography.labelSmall,
+            color = labelColor,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
