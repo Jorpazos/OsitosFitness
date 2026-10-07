@@ -32,6 +32,8 @@ jobs:
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
             printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
             echo "✅ Usando el google-services.json del secreto GOOGLE_SERVICES_JSON"
+          elif [ -f app/google-services.json ]; then
+            echo "✅ Usando app/google-services.json del repo"
           else
             cp ci/google-services.placeholder.json app/google-services.json
             echo "::warning::No está el secreto GOOGLE_SERVICES_JSON: el APK compila pero muestra 'Falta configurar Firebase'. Ver README."

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "715998587844",
+    "project_id": "ositos-fitness",
+    "storage_bucket": "ositos-fitness.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:715998587844:android:9d35f03732b14d6e989291",
+        "android_client_info": {
+          "package_name": "com.ositos.fitness"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "715998587844-rk0cpragui4bhh0mda8mppdi89c4ra71.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ositos.fitness",
+            "certificate_hash": "38a13a124bad5c6bc2c7fff4b95fdde1dc1d942c"
+          }
+        },
+        {
+          "client_id": "715998587844-j6d9m8ljbvc55ok3ndeg612ua5q9msdp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDbsDL6vvsFd3c9H6PGlrac2dnQcBL5KUQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "715998587844-j6d9m8ljbvc55ok3ndeg612ua5q9msdp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

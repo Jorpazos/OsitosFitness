@@ -140,7 +140,7 @@ En GitHub: **Settings → Secrets and variables → Actions → New repository s
 - Name: `GOOGLE_SERVICES_JSON`
 - Secret: pegá **todo el contenido** del archivo `google-services.json`.
 
-(El archivo está en `.gitignore`: no se sube al repo. Si compilás en tu compu, ponelo en `app/google-services.json`.)
+(Alternativa si el repo es **privado**: commitear el archivo en `app/google-services.json`. No es una contraseña —la seguridad la dan las reglas y el SHA-1— y el workflow lo usa si no hay secreto. Así está configurado este repo.)
 
 Sin este secreto el APK compila igual, pero al abrirlo muestra "Falta configurar Firebase".
 
