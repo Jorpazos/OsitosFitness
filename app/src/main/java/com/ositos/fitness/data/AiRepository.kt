@@ -98,7 +98,7 @@ class AiRepository(private val context: Context) {
                 .call(mapOf("image" to b64, "mediaType" to "image/jpeg"))
                 .await()
             @Suppress("UNCHECKED_CAST")
-            return JSONObject(result.data as Map<String, Any?>)
+            return JSONObject(result.getData() as Map<String, Any?>)
         } catch (e: FirebaseFunctionsException) {
             if (e.code == FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED) throw AiLimitException()
             throw Exception(e.message ?: "El backend de IA no respondió", e)
