@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # ID de tu proyecto de Firebase (Configuración del proyecto → General).
-FIREBASE_PROJECT_ID = "REEMPLAZAR-con-tu-project-id"
+FIREBASE_PROJECT_ID = "ositos-fitness"
 # Mails de Google habilitados, separados por coma. Vacío = cualquier usuario de tu proyecto Firebase.
 ALLOWED_EMAILS = ""
 
