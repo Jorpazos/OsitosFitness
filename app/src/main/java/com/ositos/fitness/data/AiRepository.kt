@@ -140,17 +140,23 @@ class AiRepository(private val context: Context) {
      * Cada intento tiene un tope de tiempo para que la app nunca quede "analizando" para siempre.
      */
     private suspend fun callGemini(jpeg: ByteArray): JSONObject {
-        // Primero los modelos estables (menos saturados); el "latest" suele tener picos de demanda.
-        val attempts = listOf(
-            "gemini-2.5-flash" to true,
-            "gemini-2.5-flash-lite" to true,
-            "gemini-flash-latest" to true,
-            "gemini-2.0-flash" to false,
-            "gemini-2.5-flash" to false,
+        // Google va retirando modelos: arrancamos por los actuales y, si responde "usá models/X",
+        // agregamos X a la cola automáticamente (así la app se adapta sola sin actualizarla).
+        val attempts = ArrayDeque(
+            listOf(
+                "gemini-3.8-flash" to true,
+                "gemini-3.5-flash-lite" to true,
+                "gemini-flash-latest" to true,
+                "gemini-3.8-flash" to false,
+            ),
         )
+        val tried = mutableSetOf<Pair<String, Boolean>>()
         val errors = mutableListOf<String>()
         val deadline = System.currentTimeMillis() + 75_000
-        for ((name, strictSchema) in attempts) {
+        val suggested = Regex("""models/([a-z0-9.\-]+)""")
+        while (attempts.isNotEmpty() && tried.size < 7) {
+            val (name, strictSchema) = attempts.removeFirst()
+            if (!tried.add(name to strictSchema)) continue
             val left = deadline - System.currentTimeMillis()
             if (left < 5_000) break
             try {
@@ -196,6 +202,12 @@ class AiRepository(private val context: Context) {
                 errors += "$name: ${e::class.simpleName} ${e.message?.take(140)}"
                 Log.w("OsitosAI", "Falló $name (schema=$strictSchema)", e)
                 val msg = e.message.orEmpty().lowercase()
+                // "Please update your code to use models/gemini-X": probamos el que sugiere Google.
+                if ("use models/" in msg) {
+                    suggested.findAll(msg.substringAfter("use ")).map { it.groupValues[1].trimEnd('.') }
+                        .filter { it != name }
+                        .forEach { attempts.addFirst(it to true) }
+                }
                 // Saturado ("high demand", 503): esperamos un poquito antes de probar el siguiente.
                 if ("demand" in msg || "overloaded" in msg || "503" in msg || "unavailable" in msg) {
                     kotlinx.coroutines.delay(2_000)
