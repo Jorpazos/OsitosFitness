@@ -97,6 +97,9 @@ class MainActivity : ComponentActivity() {
                                 onConfirm = { sessionVm.confirmPair(it) },
                                 onReset = sessionVm::resetPair,
                                 onSignOut = { sessionVm.signOut() },
+                                canGoBack = s.canGoBack,
+                                onStartSolo = { sessionVm.startSolo(toast) },
+                                onBack = { sessionVm.backToSolo() },
                             )
                         }
                         is Session.Error -> Centered {
@@ -128,6 +131,7 @@ class MainActivity : ComponentActivity() {
                                 onSignOut = { sessionVm.signOut() },
                                 account = account,
                                 onLeaveDuo = { sessionVm.leaveDuo(toast) },
+                                onFindPartner = { sessionVm.openPairing() },
                             )
                         }
                     }

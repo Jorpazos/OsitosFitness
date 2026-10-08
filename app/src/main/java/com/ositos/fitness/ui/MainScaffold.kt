@@ -115,13 +115,14 @@ fun MainScaffold(
     onSignOut: () -> Unit,
     account: Account? = null,
     onLeaveDuo: () -> Unit = {},
+    onFindPartner: () -> Unit = {},
 ) {
     val nav = rememberNavController()
     val s by vm.state.collectAsStateWithLifecycle()
     NavHost(nav, startDestination = "main") {
         composable("main") {
             MainTabs(
-                vm, s, themeMode, onThemeMode, onSignOut, account, onLeaveDuo,
+                vm, s, themeMode, onThemeMode, onSignOut, account, onLeaveDuo, onFindPartner,
                 onOpenWrapped = { nav.navigate("wrapped") },
                 onOpenMeasures = { nav.navigate("measures") },
             )
@@ -144,6 +145,7 @@ private fun MainTabs(
     onSignOut: () -> Unit,
     account: Account?,
     onLeaveDuo: () -> Unit,
+    onFindPartner: () -> Unit,
     onOpenWrapped: () -> Unit,
     onOpenMeasures: () -> Unit,
 ) {
@@ -232,6 +234,8 @@ private fun MainTabs(
                 when (t) {
                     Tab.HOME -> HomeScreen(
                         s, padding,
+                        isSolo = account?.isSolo == true,
+                        onFindPartner = onFindPartner,
                         onWater = { vm.addWater(it) },
                         onPoke = { if (vm.sendPoke()) Haptics.poke(ctx) },
                         onOpenDuel = { tab = Tab.GAME },
@@ -254,6 +258,8 @@ private fun MainTabs(
                         onSignOut = onSignOut,
                         onOpenMeasures = onOpenMeasures,
                         myPin = account?.pin,
+                        isSolo = account?.isSolo == true,
+                        onFindPartner = onFindPartner,
                         onDuoKind = vm::setDuoKind,
                         onLeaveDuo = onLeaveDuo,
                     )

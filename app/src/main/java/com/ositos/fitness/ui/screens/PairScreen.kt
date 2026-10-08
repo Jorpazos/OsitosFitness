@@ -72,6 +72,10 @@ fun PairScreen(
     onConfirm: (DuoKind) -> Unit,
     onReset: () -> Unit,
     onSignOut: () -> Unit,
+    /** Si está en modo solo y vino a buscar compa: volver. Si es la primera vez: empezar solo. */
+    canGoBack: Boolean = false,
+    onStartSolo: () -> Unit = {},
+    onBack: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -258,6 +262,34 @@ fun PairScreen(
         }
 
         Spacer(Modifier.height(20.dp))
+        if (canGoBack) {
+            BouncyButton(
+                "Volver al modo solo",
+                onBack,
+                Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                emoji = "↩️",
+            )
+        } else {
+            BouncyButton(
+                "Empezar solo por ahora",
+                onStartSolo,
+                Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                emoji = "🐻",
+            )
+            Text(
+                "Podés usar la app solo y armar tu dúo cuando quieras desde el Perfil. " +
+                    "Tu progreso se pasa al dúo.",
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
         TextButton(onClick = onSignOut) { Text("Cerrar sesión") }
     }
 }

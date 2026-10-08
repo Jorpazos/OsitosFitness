@@ -19,7 +19,18 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
 /** Lo que guarda cada persona en users/{uid}: su PIN y (si ya se emparejó) su dúo. */
-data class Account(val uid: String, val pin: String, val name: String, val duoId: String?)
+data class Account(
+    val uid: String,
+    val pin: String,
+    val name: String,
+    val duoId: String?,
+    /** Si alguna vez usó el modo solo: id de ese "dúo de uno". */
+    val soloDuoId: String? = null,
+    /** Dúo al que ya se copiaron los registros del modo solo (para no copiarlos dos veces). */
+    val migratedSoloTo: String? = null,
+) {
+    val isSolo: Boolean get() = duoId != null && duoId == soloDuoId
+}
 
 /** Lo que se ve al buscar un PIN. */
 data class PinInfo(val pin: String, val uid: String, val name: String, val duoId: String?)
@@ -82,6 +93,8 @@ class DuoRepository(
             pin = d.getString("pin") ?: return null,
             name = d.getString("name") ?: "",
             duoId = d.getString("duoId"),
+            soloDuoId = d.getString("soloDuoId"),
+            migratedSoloTo = d.getString("migratedSoloTo"),
         )
     }
 
@@ -176,7 +189,8 @@ class DuoRepository(
             if (other == me.uid) throw PairException("¡Ese es tu propio PIN! 😅")
             if (pinSnap.getString("duoId") != null) throw PairException("Esa persona ya está en un dúo")
             val mine = tx.get(users().document(me.uid))
-            if (mine.getString("duoId") != null) throw PairException("Ya estás en un dúo")
+            val myDuo = mine.getString("duoId")
+            if (myDuo != null && myDuo != soloDuoId(me.uid)) throw PairException("Ya estás en un dúo")
             val existing = tx.get(duo)
             if (existing.exists()) {
                 tx.update(
@@ -225,6 +239,54 @@ class DuoRepository(
         }
         batch.commit().await()
         duoId = null
+    }
+
+    fun soloDuoId(uid: String) = "solo_$uid"
+
+    /** Modo solo: un "dúo de uno" para usar la app sin compañero. El PIN sigue libre para emparejar. */
+    suspend fun startSolo(me: Account): String {
+        val id = soloDuoId(me.uid)
+        val ref = db.collection("duos").document(id)
+        val exists = runCatching { ref.get().await().exists() }.getOrDefault(false)
+        val batch = db.batch()
+        if (!exists) {
+            batch.set(ref, mapOf("members" to listOf(me.uid), "solo" to true, "createdAt" to System.currentTimeMillis()))
+        }
+        batch.update(users().document(me.uid), mapOf("duoId" to id, "soloDuoId" to id))
+        batch.commit().await()
+        return id
+    }
+
+    /**
+     * Al entrar a un dúo real por primera vez, copia mis registros del modo solo (perfil, días,
+     * pesos, medidas e historial) para no perder el progreso. Se hace una sola vez por dúo.
+     */
+    suspend fun migrateSoloIfNeeded(me: Account, targetDuoId: String) {
+        val solo = me.soloDuoId ?: return
+        if (targetDuoId == solo || me.migratedSoloTo == targetDuoId) return
+        val from = db.collection("duos").document(solo)
+        val to = db.collection("duos").document(targetDuoId)
+        val alreadyHasProfile = to.collection("profiles").document(me.uid).get().await().exists()
+        if (!alreadyHasProfile) {
+            val docs = mutableListOf<Pair<DocumentReference, Map<String, Any?>>>()
+            from.collection("profiles").document(me.uid).get().await().data?.let {
+                docs += to.collection("profiles").document(me.uid) to it
+            }
+            for (sub in listOf("days", "weights", "measures")) {
+                from.collection(sub).whereEqualTo("uid", me.uid).get().await().documents.forEach { d ->
+                    d.data?.let { docs += to.collection(sub).document(d.id) to it }
+                }
+            }
+            from.collection("logs").whereEqualTo("uid", me.uid).get().await().documents.forEach { d ->
+                d.data?.let { docs += to.collection("logs").document(d.id) to (it + ("reactions" to emptyMap<String, String>())) }
+            }
+            docs.chunked(400).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { (ref, data) -> batch.set(ref, data) }
+                batch.commit().await()
+            }
+        }
+        users().document(me.uid).update("migratedSoloTo", targetDuoId).await()
     }
 
     suspend fun setDuoKind(kind: DuoKind) {

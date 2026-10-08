@@ -65,6 +65,8 @@ fun ProfileScreen(
     myPin: String? = null,
     onDuoKind: (DuoKind) -> Unit = {},
     onLeaveDuo: () -> Unit = {},
+    isSolo: Boolean = false,
+    onFindPartner: () -> Unit = {},
 ) {
     val me = s.me ?: return
     val p = me.profile
@@ -138,7 +140,35 @@ fun ProfileScreen(
             )
         }
         item { SectionTitle("Tu dúo") }
-        item {
+        if (isSolo) item {
+            GameCard(accent = OsitoColors.Pink) {
+                Text("🐻 Modo solo", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Estás usando la app sin compañero. Cuando armes tu dúo, tu progreso se pasa solo.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (myPin != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Tu PIN: ", style = MaterialTheme.typography.labelLarge)
+                        Text(myPin, style = MaterialTheme.typography.headlineSmall, color = OsitoColors.Purple, modifier = Modifier.weight(1f))
+                        TextButton(onClick = {
+                            clipboard.setText(AnnotatedString(myPin))
+                            Toast.makeText(ctx, "PIN copiado 📋", Toast.LENGTH_SHORT).show()
+                        }) { Text("Copiar") }
+                    }
+                    Text(
+                        "Si alguien pone tu PIN, se arma el dúo y la app cambia sola.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                BouncyButton("Buscar compa", onFindPartner, Modifier.fillMaxWidth(), color = OsitoColors.Pink, emoji = "💞")
+            }
+        }
+        if (!isSolo) item {
             GameCard(accent = OsitoColors.Pink) {
                 val kind = s.duo?.kind ?: DuoKind.PAREJA
                 Text(

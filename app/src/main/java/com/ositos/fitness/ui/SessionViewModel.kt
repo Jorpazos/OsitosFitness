@@ -20,7 +20,7 @@ sealed interface Session {
     data object ConfigMissing : Session
     data object SignedOut : Session
     /** Todavía sin compañero/a: muestra tu PIN y pide el del otro. */
-    data class NeedsPartner(val account: Account) : Session
+    data class NeedsPartner(val account: Account, val canGoBack: Boolean = false) : Session
     data class NeedsProfile(val uid: String, val displayName: String?, val draft: Profile?) : Session
     data class Ready(val uid: String, val duoId: String) : Session
     data class Error(val message: String) : Session
@@ -89,6 +89,8 @@ class SessionViewModel(
 
     private suspend fun enterDuo(duoId: String) {
         val user = repo.auth.currentUser ?: return
+        // Si venía de modo solo, sus registros se copian al dúo nuevo (una sola vez).
+        _account.value?.let { acc -> runCatching { repo.migrateSoloIfNeeded(acc, duoId) } }
         repo.duoId = duoId
         val profile = repo.getMyProfile()
         _session.value = if (profile?.onboarded == true) {
@@ -112,15 +114,51 @@ class SessionViewModel(
                 _account.value = acc
                 val duoId = acc.duoId
                 val current = _session.value
+                val realDuo = duoId != null && duoId != acc.soloDuoId
+                val shouldEnter = when {
+                    _pair.value is PairState.Pairing -> false
+                    current is Session.NeedsPartner -> realDuo
+                    current is Session.Ready -> duoId != null && duoId != current.duoId
+                    else -> false
+                }
                 if (duoId == null && (current is Session.Ready || current is Session.NeedsProfile)) {
                     repo.duoId = null
                     _session.value = Session.NeedsPartner(acc)
-                } else if (duoId != null && current is Session.NeedsPartner && _pair.value !is PairState.Pairing) {
+                } else if (shouldEnter && duoId != null) {
                     runCatching { enterDuo(duoId) }
                         .onFailure { _session.value = Session.Error(it.message ?: "Algo salió mal") }
                 }
             }
         }
+    }
+
+    /** "Empezar solo por ahora": usa la app sin compañero; el PIN sigue libre para emparejar. */
+    fun startSolo(onError: (String) -> Unit) {
+        val acc = _account.value ?: return
+        viewModelScope.launch {
+            try {
+                _session.value = Session.Loading
+                val id = repo.startSolo(acc)
+                _account.value = acc.copy(duoId = id, soloDuoId = id)
+                enterDuo(id)
+            } catch (e: Exception) {
+                _session.value = Session.NeedsPartner(acc)
+                onError(e.message ?: "No se pudo empezar en modo solo")
+            }
+        }
+    }
+
+    /** Desde el modo solo: ir a la pantalla del PIN para armar un dúo. */
+    fun openPairing() {
+        val acc = _account.value ?: return
+        _pair.value = PairState.Idle
+        _session.value = Session.NeedsPartner(acc, canGoBack = true)
+    }
+
+    /** Volver al modo solo sin emparejar. */
+    fun backToSolo() {
+        val id = _account.value?.duoId ?: return
+        viewModelScope.launch { runCatching { enterDuo(id) } }
     }
 
     fun leaveDuo(onError: (String) -> Unit) {

@@ -57,6 +57,8 @@ fun HomeScreen(
     onPoke: () -> Unit,
     onOpenDuel: () -> Unit,
     onOpenWrapped: () -> Unit,
+    isSolo: Boolean = false,
+    onFindPartner: () -> Unit = {},
 ) {
     val me = s.me ?: return
     val myColor = Color(me.profile.color)
@@ -124,7 +126,7 @@ fun HomeScreen(
         item { QuestsCard(s, compact = true) }
 
         item { SectionTitle("Vos | ${s.partner?.name ?: "Tu compa"}") }
-        item { SplitView(s, onPoke) }
+        item { SplitView(s, onPoke, isSolo, onFindPartner) }
 
         item {
             GameCard {
@@ -253,7 +255,7 @@ private fun WaterRow(water: Int, onWater: (Int) -> Unit) {
 }
 
 @Composable
-private fun SplitView(s: DuoState, onPoke: () -> Unit) {
+private fun SplitView(s: DuoState, onPoke: () -> Unit, isSolo: Boolean, onFindPartner: () -> Unit) {
     val me = s.me ?: return
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         PersonColumn(me, Modifier.weight(1f), isMe = true, onPoke = {}, pokesLeft = 0, muted = false)
@@ -264,14 +266,26 @@ private fun SplitView(s: DuoState, onPoke: () -> Unit) {
                 muted = s.partner.profile.pokesMutedUntil > System.currentTimeMillis(),
             )
         } else {
-            GameCard(Modifier.weight(1f)) {
-                Text("⏳", fontSize = 36.sp)
-                Text("Esperando a tu compa", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "Ya están emparejados: aparece acá apenas termine de armar su perfil.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (isSolo) {
+                GameCard(Modifier.weight(1f), onClick = onFindPartner) {
+                    Text("💞", fontSize = 36.sp)
+                    Text("Modo solo", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Tocá acá para armar tu dúo con un PIN y desbloquear duelos, bingo y La Osera.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                GameCard(Modifier.weight(1f)) {
+                    Text("⏳", fontSize = 36.sp)
+                    Text("Esperando a tu compa", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Ya están emparejados: aparece acá apenas termine de armar su perfil.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

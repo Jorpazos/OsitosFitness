@@ -55,15 +55,16 @@ service cloud.firestore {
             request.resource.data.duoId == resource.data.duoId
             // Desemparejarte: siempre podés salir.
             || request.resource.data.duoId == null
-            || (resource.data.duoId == null
+            // Entrar a un dúo (o a tu modo solo): si estabas libre o en modo solo.
+            || ((resource.data.duoId == null || resource.data.duoId == 'solo_' + uid)
                 && request.auth.uid in getAfter(duoDoc(request.resource.data.duoId)).data.members)
           )
         )
         ||
-        // Tu compañero/a te empareja: solo si estabas libre y el dúo nuevo es de ustedes dos.
+        // Tu compañero/a te empareja: solo si estabas libre (o en modo solo) y el dúo nuevo es de ustedes dos.
         (
           request.auth.uid != uid
-          && resource.data.duoId == null
+          && (resource.data.duoId == null || resource.data.duoId == 'solo_' + uid)
           && onlyChanges(['duoId'])
           && uid in getAfter(duoDoc(request.resource.data.duoId)).data.members
           && request.auth.uid in getAfter(duoDoc(request.resource.data.duoId)).data.members
@@ -120,6 +121,11 @@ service cloud.firestore {
 
       // Crear un dúo: exactamente 2 personas distintas (una sos vos), y en la misma operación
       // las dos quedan apuntando a este dúo (las reglas de users/ exigen que estuvieran libres).
+      // Modo solo: un "dúo" de una sola persona, con id fijo solo_{uid}.
+      allow create: if signedIn()
+        && duoId == 'solo_' + request.auth.uid
+        && request.resource.data.members == [request.auth.uid];
+
       allow create: if signedIn()
         && request.resource.data.members is list
         && request.resource.data.members.size() == 2

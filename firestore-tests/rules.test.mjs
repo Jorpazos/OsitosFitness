@@ -153,6 +153,23 @@ await t("vuelven a emparejarse y recuperan el dúo", assertSucceeds(runTransacti
 })));
 await t("carol no puede reactivar el dúo de otros", assertFails(updateDoc(doc(C, "duos/duoAB"), { ended: false })));
 
+// ---------- Modo solo ----------
+const G = db("gina"), H = db("hugo");
+await t("gina se registra", assertSucceeds(register(G, "gina", "GINA77", "Gina")));
+await t("hugo se registra", assertSucceeds(register(H, "hugo", "HUGO88", "Hugo")));
+await t("gina arranca sola", assertSucceeds((async () => {
+  const b = writeBatch(G);
+  b.set(doc(G, "duos/solo_gina"), { members: ["gina"], solo: true });
+  b.update(doc(G, "users/gina"), { duoId: "solo_gina", soloDuoId: "solo_gina" });
+  await b.commit();
+})()));
+await t("hugo no crea el solo de gina", assertFails(setDoc(doc(H, "duos/solo_x"), { members: ["gina"] })));
+await t("gina registra en modo solo", assertSucceeds(setDoc(doc(G, "duos/solo_gina/days/gina_2026-10-08"), { uid: "gina", dayKey: "2026-10-08", meals: 1 })));
+await t("hugo no lee el solo de gina", assertFails(getDoc(doc(H, "duos/solo_gina"))));
+await t("hugo se empareja con gina (que estaba sola)", assertSucceeds(pair(H, "hugo", "HUGO88", "GINA77", "gina_hugo")));
+await t("gina copia sus registros al dúo nuevo", assertSucceeds(setDoc(doc(G, "duos/gina_hugo/days/gina_2026-10-08"), { uid: "gina", dayKey: "2026-10-08", meals: 1 })));
+await t("gina sigue leyendo su modo solo", assertSucceeds(getDocs(collection(G, "duos/solo_gina/days"))));
+
 // ---------- Migración del dúo viejo (duos/main) ----------
 await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(ctx.firestore(), "duos/main"), { members: ["eve", "frank"] });
