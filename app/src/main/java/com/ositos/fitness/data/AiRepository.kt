@@ -140,11 +140,13 @@ class AiRepository(private val context: Context) {
      * Cada intento tiene un tope de tiempo para que la app nunca quede "analizando" para siempre.
      */
     private suspend fun callGemini(jpeg: ByteArray): JSONObject {
+        // Primero los modelos estables (menos saturados); el "latest" suele tener picos de demanda.
         val attempts = listOf(
-            "gemini-flash-latest" to true,
             "gemini-2.5-flash" to true,
-            "gemini-2.5-flash" to false,
+            "gemini-2.5-flash-lite" to true,
+            "gemini-flash-latest" to true,
             "gemini-2.0-flash" to false,
+            "gemini-2.5-flash" to false,
         )
         val errors = mutableListOf<String>()
         val deadline = System.currentTimeMillis() + 75_000
@@ -193,11 +195,22 @@ class AiRepository(private val context: Context) {
             } catch (e: Exception) {
                 errors += "$name: ${e::class.simpleName} ${e.message?.take(140)}"
                 Log.w("OsitosAI", "Falló $name (schema=$strictSchema)", e)
+                val msg = e.message.orEmpty().lowercase()
+                // Saturado ("high demand", 503): esperamos un poquito antes de probar el siguiente.
+                if ("demand" in msg || "overloaded" in msg || "503" in msg || "unavailable" in msg) {
+                    kotlinx.coroutines.delay(2_000)
+                }
             }
         }
+        val busy = errors.any { "demand" in it.lowercase() || "overloaded" in it.lowercase() || "503" in it }
         throw Exception(
-            "La IA no pudo analizar la foto. Cargala a mano y mandale este detalle a quien mantiene la app:\n" +
-                errors.joinToString("\n"),
+            if (busy) {
+                "Gemini está saturado en este momento (pasa a veces con la versión gratis). " +
+                    "Probá de nuevo en unos minutos o cargala a mano 🍽️"
+            } else {
+                "La IA no pudo analizar la foto. Cargala a mano y mandale este detalle a quien mantiene la app:\n" +
+                    errors.joinToString("\n")
+            },
         )
     }
 
