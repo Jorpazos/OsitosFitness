@@ -23,6 +23,9 @@ import com.ositos.fitness.domain.Dates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
+import android.util.Log
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
@@ -46,8 +49,6 @@ class AiRepository(private val context: Context) {
         const val JPEG_QUALITY = 70
         const val DAILY_LIMIT = 20
 
-        /** Se prueban en orden: si un nombre de modelo deja de existir, pasa al siguiente. */
-        private val GEMINI_MODELS = listOf("gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash")
 
         private const val SYSTEM_PROMPT =
             "Sos un nutricionista que estima calorías a partir de fotos de comida (cocina argentina incluida). " +
@@ -133,45 +134,71 @@ class AiRepository(private val context: Context) {
         return out.toByteArray()
     }
 
+    /**
+     * Prueba varios modelos de Gemini (por si alguno fue retirado o no está habilitado) y, si el
+     * esquema JSON estricto falla, reintenta pidiendo el JSON solo por instrucción.
+     * Cada intento tiene un tope de tiempo para que la app nunca quede "analizando" para siempre.
+     */
     private suspend fun callGemini(jpeg: ByteArray): JSONObject {
-        var last: Exception? = null
-        for (name in GEMINI_MODELS) {
+        val attempts = listOf(
+            "gemini-flash-latest" to true,
+            "gemini-2.5-flash" to true,
+            "gemini-2.5-flash" to false,
+            "gemini-2.0-flash" to false,
+        )
+        val errors = mutableListOf<String>()
+        val deadline = System.currentTimeMillis() + 75_000
+        for ((name, strictSchema) in attempts) {
+            val left = deadline - System.currentTimeMillis()
+            if (left < 5_000) break
             try {
                 val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
                     modelName = name,
                     generationConfig = generationConfig {
                         responseMimeType = "application/json"
-                        responseSchema = FOOD_SCHEMA
+                        if (strictSchema) responseSchema = FOOD_SCHEMA
                     },
                     systemInstruction = content { text(SYSTEM_PROMPT) },
                 )
-                val response = model.generateContent(
-                    content {
-                        inlineData(jpeg, "image/jpeg")
-                        text("Estimá las calorías de esta comida. Solo JSON.")
-                    },
-                )
-                val text = response.text ?: error("La IA no devolvió respuesta")
+                val response = withTimeout(minOf(30_000L, left)) {
+                    model.generateContent(
+                        content {
+                            inlineData(jpeg, "image/jpeg")
+                            text(
+                                "Estimá las calorías de esta comida. Respondé solo JSON con este formato: " +
+                                    "{\"alimentos\":[{\"nombre\":\"\",\"porcion_estimada\":\"\",\"kcal\":0}]," +
+                                    "\"kcal_total\":0,\"confianza\":\"baja|media|alta\"}",
+                            )
+                        },
+                    )
+                }
+                val text = response.text ?: error("respuesta vacía")
                 val start = text.indexOf('{')
                 val end = text.lastIndexOf('}')
-                if (start == -1 || end <= start) error("La IA no devolvió JSON")
+                if (start == -1 || end <= start) error("respuesta sin JSON")
                 return JSONObject(text.substring(start, end + 1))
             } catch (e: ServiceDisabledException) {
                 throw Exception(
-                    "Falta activar la IA en Firebase: consola → Servicios de IA → AI Logic → Comenzar → Gemini Developer API.",
+                    "Falta activar la IA en Firebase: consola → Servicios de IA → AI Logic → " +
+                        "Comenzar → Gemini Developer API.",
                     e,
                 )
             } catch (e: QuotaExceededException) {
                 throw Exception("Se agotó la cuota gratis de la IA por ahora. Probá en un rato o cargala a mano.", e)
+            } catch (e: TimeoutCancellationException) {
+                errors += "$name: tardó demasiado"
+                Log.w("OsitosAI", "Timeout con $name")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // se cerró la pantalla: no seguimos intentando
             } catch (e: Exception) {
-                last = e
-                val msg = e.message.orEmpty().lowercase()
-                // Modelo inexistente o retirado: probamos el siguiente de la lista.
-                if ("not found" in msg || "404" in msg || "is not supported" in msg) continue
-                throw Exception("La IA no pudo analizar la foto: ${e.message}", e)
+                errors += "$name: ${e::class.simpleName} ${e.message?.take(140)}"
+                Log.w("OsitosAI", "Falló $name (schema=$strictSchema)", e)
             }
         }
-        throw Exception("Ningún modelo de Gemini disponible: ${last?.message}", last)
+        throw Exception(
+            "La IA no pudo analizar la foto. Cargala a mano y mandale este detalle a quien mantiene la app:\n" +
+                errors.joinToString("\n"),
+        )
     }
 
     private suspend fun callFunction(b64: String): JSONObject {
