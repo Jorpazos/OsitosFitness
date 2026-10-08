@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,6 +43,8 @@ import com.ositos.fitness.ui.components.BouncyButton
 import com.ositos.fitness.ui.components.FillBar
 import com.ositos.fitness.ui.components.GameCard
 import com.ositos.fitness.ui.components.LocalCheckForUpdates
+import com.ositos.fitness.ui.components.TERMS_BODY
+import com.ositos.fitness.ui.components.TERMS_TITLE
 import com.ositos.fitness.ui.components.SectionTitle
 import com.ositos.fitness.ui.theme.OsitoColors
 import java.time.Instant
@@ -73,6 +76,7 @@ fun ProfileScreen(
     var editing by remember { mutableStateOf<Int?>(null) } // 0 = identidad, 1 = cuerpo
     var confirmSignOut by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
+    var showTerms by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
 
@@ -241,6 +245,7 @@ fun ProfileScreen(
             Column {
                 val checkUpdates = LocalCheckForUpdates.current
                 TextButton(onClick = checkUpdates) { Text("🆕 Buscar actualizaciones") }
+                TextButton(onClick = { showTerms = true }) { Text("📄 Bases y condiciones") }
                 TextButton(onClick = { confirmSignOut = true }) { Text("Cerrar sesión") }
                 Text(
                     "Ositos Fitness ${BuildConfig.VERSION_NAME} · IA: ${BuildConfig.AI_BACKEND}",
@@ -280,6 +285,19 @@ fun ProfileScreen(
                 }
             }
         }
+    }
+
+    if (showTerms) {
+        AlertDialog(
+            onDismissRequest = { showTerms = false },
+            title = { Text("$TERMS_TITLE 🐻") },
+            text = {
+                androidx.compose.foundation.layout.Column(
+                    Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                ) { Text(TERMS_BODY, style = MaterialTheme.typography.bodyMedium) }
+            },
+            confirmButton = { TextButton(onClick = { showTerms = false }) { Text("Cerrar") } },
+        )
     }
 
     if (confirmLeave) {
