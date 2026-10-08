@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                     val session by sessionVm.session.collectAsStateWithLifecycle()
+                    val account by sessionVm.account.collectAsStateWithLifecycle()
                     val ctx = LocalContext.current
                     val toast: (String) -> Unit = { Toast.makeText(ctx, it, Toast.LENGTH_LONG).show() }
 
@@ -93,7 +94,7 @@ class MainActivity : ComponentActivity() {
                                 account = s.account,
                                 state = pairState,
                                 onSearch = sessionVm::searchPin,
-                                onConfirm = sessionVm::confirmPair,
+                                onConfirm = { sessionVm.confirmPair(it) },
                                 onReset = sessionVm::resetPair,
                                 onSignOut = { sessionVm.signOut() },
                             )
@@ -125,6 +126,8 @@ class MainActivity : ComponentActivity() {
                                     container.prefs.edit().putString("theme", it.name).apply()
                                 },
                                 onSignOut = { sessionVm.signOut() },
+                                account = account,
+                                onLeaveDuo = { sessionVm.leaveDuo(toast) },
                             )
                         }
                     }

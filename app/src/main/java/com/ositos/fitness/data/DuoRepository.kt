@@ -153,28 +153,82 @@ class DuoRepository(
         return info
     }
 
-    /** Crea el dúo con la persona del PIN. Los dos quedan emparejados al instante. */
-    suspend fun pairWith(me: Account, partnerPin: String): String {
-        val newDuo = db.collection("duos").document()
+    /** Id del dúo de dos personas: siempre el mismo para el mismo par (así, si se reconectan, recuperan todo). */
+    private fun pairDuoId(a: String, b: String) = listOf(a, b).sorted().joinToString("_")
+
+    /**
+     * Arma el dúo con la persona del PIN. Si ya habían sido dúo antes, lo reactiva con todo su historial.
+     * Los dos quedan emparejados al instante.
+     */
+    suspend fun pairWith(me: Account, partnerPin: String, kind: DuoKind): String {
+        val pinInfo = pins().document(partnerPin).get().await()
+        val other = pinInfo.getString("uid") ?: throw PairException("No encontramos ese PIN")
+        // ¿Eran el dúo de la primera versión de la app? Entonces recuperan ese.
+        val legacy = runCatching { db.collection("duos").document(LEGACY_DUO_ID).get().await() }.getOrNull()
+        @Suppress("UNCHECKED_CAST")
+        val legacyMembers = (legacy?.get("members") as? List<String>)?.toSet()
+        val targetId = if (legacyMembers == setOf(me.uid, other)) LEGACY_DUO_ID else pairDuoId(me.uid, other)
+        val duo = db.collection("duos").document(targetId)
+
         db.runTransaction { tx ->
             val pinSnap = tx.get(pins().document(partnerPin))
             if (!pinSnap.exists()) throw PairException("No encontramos ese PIN")
-            val other = pinSnap.getString("uid") ?: throw PairException("PIN inválido")
             if (other == me.uid) throw PairException("¡Ese es tu propio PIN! 😅")
             if (pinSnap.getString("duoId") != null) throw PairException("Esa persona ya está en un dúo")
             val mine = tx.get(users().document(me.uid))
             if (mine.getString("duoId") != null) throw PairException("Ya estás en un dúo")
-            tx.set(
-                newDuo,
-                mapOf("members" to listOf(me.uid, other), "createdAt" to System.currentTimeMillis(), "pairedBy" to me.uid),
-            )
-            tx.update(users().document(me.uid), "duoId", newDuo.id)
-            tx.update(users().document(other), "duoId", newDuo.id)
-            tx.update(pins().document(me.pin), "duoId", newDuo.id)
-            tx.update(pins().document(partnerPin), "duoId", newDuo.id)
+            val existing = tx.get(duo)
+            if (existing.exists()) {
+                tx.update(
+                    duo,
+                    mapOf("ended" to false, "kind" to kind.name, "reunitedAt" to System.currentTimeMillis()),
+                )
+            } else {
+                tx.set(
+                    duo,
+                    mapOf(
+                        "members" to listOf(me.uid, other), "kind" to kind.name, "ended" to false,
+                        "createdAt" to System.currentTimeMillis(), "pairedBy" to me.uid,
+                    ),
+                )
+            }
+            tx.update(users().document(me.uid), "duoId", targetId)
+            tx.update(users().document(other), "duoId", targetId)
+            tx.update(pins().document(me.pin), "duoId", targetId)
+            tx.update(pins().document(partnerPin), "duoId", targetId)
             null
         }.await()
-        return newDuo.id
+        return targetId
+    }
+
+    /**
+     * Desemparejarse: el dúo termina para los dos (los dos quedan libres para emparejarse).
+     * El historial queda guardado: si vuelven a emparejarse entre ellos, lo recuperan.
+     */
+    suspend fun leaveDuo(me: Account) {
+        val current = duoId ?: return
+        val duoSnap = db.collection("duos").document(current).get().await()
+        @Suppress("UNCHECKED_CAST")
+        val members = (duoSnap.get("members") as? List<String>) ?: emptyList()
+        val other = members.firstOrNull { it != me.uid }
+        val otherUser = other?.let { users().document(it).get().await() }
+        val batch = db.batch()
+        batch.update(
+            db.collection("duos").document(current),
+            mapOf("ended" to true, "endedBy" to me.uid, "endedAt" to System.currentTimeMillis()),
+        )
+        batch.update(users().document(me.uid), "duoId", null)
+        batch.update(pins().document(me.pin), "duoId", null)
+        if (other != null && otherUser?.getString("duoId") == current) {
+            batch.update(users().document(other), "duoId", null)
+            otherUser.getString("pin")?.let { batch.update(pins().document(it), "duoId", null) }
+        }
+        batch.commit().await()
+        duoId = null
+    }
+
+    suspend fun setDuoKind(kind: DuoKind) {
+        duoRef.update("kind", kind.name).await()
     }
 
     // ---------- Dúo ----------

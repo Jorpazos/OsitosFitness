@@ -57,12 +57,21 @@ fun UsScreen(s: DuoState, padding: PaddingValues, onOpenWrapped: () -> Unit) {
             }
         }
         item {
-            Text(
-                if (partner != null) "${me.name} & ${partner.name}" else "${me.name} & …",
-                style = MaterialTheme.typography.headlineMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            val kind = s.duo?.kind ?: com.ositos.fitness.data.DuoKind.PAREJA
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    if (partner != null) "${me.name} & ${partner.name}" else "${me.name} & …",
+                    style = MaterialTheme.typography.headlineMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Text("${kind.emoji} ${kind.label}", style = MaterialTheme.typography.titleMedium, color = OsitoColors.Pink)
+                Text(
+                    kind.tagline,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         item {
             val kgTogether = people.sumOf { it.kgProgress.coerceAtLeast(0.0) }

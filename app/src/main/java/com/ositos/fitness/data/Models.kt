@@ -91,8 +91,18 @@ data class Profile(
     }
 }
 
+/** Qué tipo de dúo son: lo eligen al emparejarse y se puede cambiar en el Perfil. */
+enum class DuoKind(val label: String, val emoji: String, val tagline: String) {
+    PAREJA("Pareja", "💞", "Se cuidan de a dos, con amor (y prendas)"),
+    AMIGOS("Amigos", "🤝", "Amistad que suda junta, queda junta"),
+    HERMANOS("Hermanos", "👫", "Rivalidad de hermanos… pero sana"),
+    SUPER_OSITOS("Súper Ositos", "🐻", "Dos ositos con superpoderes de constancia"),
+    EQUIPO_ROCKET("Equipo Rocket", "🚀", "¡Prepárense para los problemas… y más vale que sean saludables!"),
+}
+
 data class Duo(
     val members: List<String> = emptyList(),
+    val kind: DuoKind = DuoKind.PAREJA,
     val pokeMessages: List<String> = Defaults.pokeMessages,
     val forfeits: List<String> = Defaults.forfeits,
     val duelsWon: Map<String, Int> = emptyMap(),
@@ -105,6 +115,7 @@ data class Duo(
             if (!d.exists()) return null
             return Duo(
                 members = (d.get("members") as? List<String>) ?: emptyList(),
+                kind = runCatching { DuoKind.valueOf(d.getString("kind") ?: "") }.getOrDefault(DuoKind.PAREJA),
                 pokeMessages = (d.get("pokeMessages") as? List<String>)?.takeIf { it.isNotEmpty() } ?: Defaults.pokeMessages,
                 forfeits = (d.get("forfeits") as? List<String>)?.takeIf { it.isNotEmpty() } ?: Defaults.forfeits,
                 duelsWon = (d.get("duelsWon") as? Map<String, Any?>)

@@ -30,6 +30,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.ositos.fitness.BuildConfig
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import com.ositos.fitness.data.DuoKind
 import com.ositos.fitness.data.Profile
 import com.ositos.fitness.ui.DuoState
 import com.ositos.fitness.ui.components.Avatar
@@ -57,11 +62,17 @@ fun ProfileScreen(
     onEditForfeits: () -> Unit,
     onSignOut: () -> Unit,
     onOpenMeasures: () -> Unit = {},
+    myPin: String? = null,
+    onDuoKind: (DuoKind) -> Unit = {},
+    onLeaveDuo: () -> Unit = {},
 ) {
     val me = s.me ?: return
     val p = me.profile
     var editing by remember { mutableStateOf<Int?>(null) } // 0 = identidad, 1 = cuerpo
     var confirmSignOut by remember { mutableStateOf(false) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    val clipboard = LocalClipboardManager.current
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -125,6 +136,45 @@ fun ProfileScreen(
                 contentColor = Color(0xFF3A2600),
                 emoji = "📏",
             )
+        }
+        item { SectionTitle("Tu dúo") }
+        item {
+            GameCard(accent = OsitoColors.Pink) {
+                val kind = s.duo?.kind ?: DuoKind.PAREJA
+                Text(
+                    "${kind.emoji} ${me.name} & ${s.partner?.name ?: "tu compa"} · ${kind.label}",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("¿Qué son?", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
+                DuoKindPicker(kind, onDuoKind)
+                if (myPin != null) {
+                    Spacer(Modifier.height(14.dp))
+                    Text("Tu PIN", style = MaterialTheme.typography.labelLarge)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            myPin,
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = OsitoColors.Purple,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = {
+                            clipboard.setText(AnnotatedString(myPin))
+                            Toast.makeText(ctx, "PIN copiado 📋", Toast.LENGTH_SHORT).show()
+                        }) { Text("Copiar") }
+                    }
+                    Text(
+                        "Sirve para armar un dúo nuevo si se desemparejan. Mientras estés en un dúo, nadie puede usarlo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                TextButton(onClick = { confirmLeave = true }) {
+                    Text("💔 Desemparejarme", color = MaterialTheme.colorScheme.error)
+                }
+            }
         }
         item { SectionTitle("Pinchazos") }
         item {
@@ -200,6 +250,26 @@ fun ProfileScreen(
                 }
             }
         }
+    }
+
+    if (confirmLeave) {
+        AlertDialog(
+            onDismissRequest = { confirmLeave = false },
+            title = { Text("¿Desemparejarte?") },
+            text = {
+                Text(
+                    "El dúo termina para los dos y quedan libres para emparejarse con quien quieran. " +
+                        "No se borra nada: si algún día vuelven a emparejarse entre ustedes, recuperan " +
+                        "todo (rachas, logros, duelos y La Osera).",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmLeave = false; onLeaveDuo() }) {
+                    Text("Desemparejar", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Cancelar") } },
+        )
     }
 
     if (confirmSignOut) {

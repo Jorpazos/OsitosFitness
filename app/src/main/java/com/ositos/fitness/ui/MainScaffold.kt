@@ -89,6 +89,7 @@ import com.ositos.fitness.ui.screens.UsScreen
 import com.ositos.fitness.ui.screens.WeightSheet
 import com.ositos.fitness.ui.screens.WrappedScreen
 import com.ositos.fitness.ui.theme.OsitoColors
+import com.ositos.fitness.data.Account
 import com.ositos.fitness.data.LogType
 import kotlinx.coroutines.delay
 
@@ -112,13 +113,15 @@ fun MainScaffold(
     themeMode: ThemeMode,
     onThemeMode: (ThemeMode) -> Unit,
     onSignOut: () -> Unit,
+    account: Account? = null,
+    onLeaveDuo: () -> Unit = {},
 ) {
     val nav = rememberNavController()
     val s by vm.state.collectAsStateWithLifecycle()
     NavHost(nav, startDestination = "main") {
         composable("main") {
             MainTabs(
-                vm, s, themeMode, onThemeMode, onSignOut,
+                vm, s, themeMode, onThemeMode, onSignOut, account, onLeaveDuo,
                 onOpenWrapped = { nav.navigate("wrapped") },
                 onOpenMeasures = { nav.navigate("measures") },
             )
@@ -139,6 +142,8 @@ private fun MainTabs(
     themeMode: ThemeMode,
     onThemeMode: (ThemeMode) -> Unit,
     onSignOut: () -> Unit,
+    account: Account?,
+    onLeaveDuo: () -> Unit,
     onOpenWrapped: () -> Unit,
     onOpenMeasures: () -> Unit,
 ) {
@@ -248,6 +253,9 @@ private fun MainTabs(
                         onEditForfeits = { editList = "forfeits" },
                         onSignOut = onSignOut,
                         onOpenMeasures = onOpenMeasures,
+                        myPin = account?.pin,
+                        onDuoKind = vm::setDuoKind,
+                        onLeaveDuo = onLeaveDuo,
                     )
                 }
             }

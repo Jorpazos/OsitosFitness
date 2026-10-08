@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ositos.fitness.data.Account
+import com.ositos.fitness.data.DuoKind
 import com.ositos.fitness.data.DuoRepository
 import com.ositos.fitness.ui.PairState
 import com.ositos.fitness.ui.components.BouncyButton
@@ -68,13 +69,14 @@ fun PairScreen(
     account: Account,
     state: PairState,
     onSearch: (String) -> Unit,
-    onConfirm: () -> Unit,
+    onConfirm: (DuoKind) -> Unit,
     onReset: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var pin by rememberSaveable { mutableStateOf("") }
+    var kind by rememberSaveable { mutableStateOf(DuoKind.PAREJA) }
     val inf = rememberInfiniteTransition(label = "pair")
     val pulse by inf.animateFloat(0.94f, 1.06f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "p")
 
@@ -178,10 +180,12 @@ fun PairScreen(
                                 style = MaterialTheme.typography.headlineSmall,
                             )
                             Text(
-                                "PIN ${st.info.pin}. ¿Arman el dúo?",
+                                "PIN ${st.info.pin}. ¿Qué tipo de dúo son?",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            Spacer(Modifier.height(8.dp))
+                            DuoKindPicker(kind) { kind = it }
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 BouncyButton(
@@ -195,7 +199,7 @@ fun PairScreen(
                                     "Emparejar",
                                     {
                                         Haptics.success(ctx)
-                                        onConfirm()
+                                        onConfirm(kind)
                                     },
                                     Modifier.weight(1.4f),
                                     color = OsitoColors.Pink,
@@ -256,4 +260,28 @@ fun PairScreen(
         Spacer(Modifier.height(20.dp))
         TextButton(onClick = onSignOut) { Text("Cerrar sesión") }
     }
+}
+
+/** Chips para elegir el tipo de dúo (pareja, amigos, hermanos, súper ositos, equipo rocket). */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun DuoKindPicker(selected: DuoKind, onSelect: (DuoKind) -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        DuoKind.entries.forEach { k ->
+            androidx.compose.material3.FilterChip(
+                selected = k == selected,
+                onClick = { onSelect(k) },
+                label = { Text("${k.emoji} ${k.label}") },
+            )
+        }
+    }
+    Text(
+        selected.tagline,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp),
+    )
 }

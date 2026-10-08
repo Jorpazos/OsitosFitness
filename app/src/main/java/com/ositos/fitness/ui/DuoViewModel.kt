@@ -241,6 +241,9 @@ class DuoViewModel(
         repo.setCoopChallenge(_state.value.currentWeek.key, type, target)
     }
 
+    fun setDuoKind(kind: com.ositos.fitness.data.DuoKind) =
+        launchAction(success = "${kind.emoji} ¡Ahora son ${kind.label}!") { repo.setDuoKind(kind) }
+
     fun updatePokeMessages(list: List<String>) = launchAction(success = "Guardado") {
         repo.updateDuoLists(pokeMessages = list.filter { it.isNotBlank() })
     }

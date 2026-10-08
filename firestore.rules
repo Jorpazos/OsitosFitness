@@ -53,6 +53,8 @@ service cloud.firestore {
           && request.resource.data.pin == resource.data.pin
           && (
             request.resource.data.duoId == resource.data.duoId
+            // Desemparejarte: siempre podés salir.
+            || request.resource.data.duoId == null
             || (resource.data.duoId == null
                 && request.auth.uid in getAfter(duoDoc(request.resource.data.duoId)).data.members)
           )
@@ -65,6 +67,15 @@ service cloud.firestore {
           && onlyChanges(['duoId'])
           && uid in getAfter(duoDoc(request.resource.data.duoId)).data.members
           && request.auth.uid in getAfter(duoDoc(request.resource.data.duoId)).data.members
+        )
+        ||
+        // Tu compañero/a se desempareja: el dúo termina para los dos (solo alguien de ese dúo).
+        (
+          request.auth.uid != uid
+          && resource.data.duoId != null
+          && request.resource.data.duoId == null
+          && onlyChanges(['duoId'])
+          && request.auth.uid in get(duoDoc(resource.data.duoId)).data.members
         )
       );
 
@@ -85,10 +96,10 @@ service cloud.firestore {
         // El dueño puede cambiar su nombre visible.
         (resource.data.uid == request.auth.uid && onlyChanges(['name']))
         ||
-        // Al emparejar: queda marcado con el dúo que se le asignó a su dueño.
+        // Al emparejar o desemparejar: refleja el dúo que quedó asignado a su dueño.
         (
-          resource.data.duoId == null
-          && onlyChanges(['duoId'])
+          onlyChanges(['duoId'])
+          && (resource.data.duoId == null || request.resource.data.duoId == null)
           && getAfter(userPath(resource.data.uid)).data.duoId == request.resource.data.duoId
         )
       );
@@ -104,7 +115,8 @@ service cloud.firestore {
         return signedIn() && request.auth.uid in get(duoDoc(duoId)).data.members;
       }
 
-      allow get: if signedIn() && request.auth.uid in resource.data.members;
+      // Leer: miembros. Un dúo que no existe se puede "leer" (para saber si hay que crearlo).
+      allow get: if signedIn() && (resource == null || request.auth.uid in resource.data.members);
 
       // Crear un dúo: exactamente 2 personas distintas (una sos vos), y en la misma operación
       // las dos quedan apuntando a este dúo (las reglas de users/ exigen que estuvieran libres).

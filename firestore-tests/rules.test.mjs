@@ -122,6 +122,37 @@ await t("semanas", assertSucceeds(setDoc(doc(B, "duos/duoAB/weeks/2026-W41"), { 
 await t("aiUsage cerrado", assertFails(getDoc(doc(A, "duos/duoAB/aiUsage/alice_x"))));
 await t("otros paths cerrados", assertFails(setDoc(doc(A, "otra/cosa"), { a: 1 })));
 
+// ---------- Desemparejar y volver a emparejar ----------
+async function leave(f, me, myPin, other, otherPin, duoId) {
+  const b = writeBatch(f);
+  b.update(doc(f, `duos/${duoId}`), { ended: true, endedBy: me });
+  b.update(doc(f, `users/${me}`), { duoId: null });
+  b.update(doc(f, `users/${other}`), { duoId: null });
+  b.update(doc(f, `pins/${myPin}`), { duoId: null });
+  b.update(doc(f, `pins/${otherPin}`), { duoId: null });
+  await b.commit();
+}
+await t("carol no puede desemparejar a alice", assertFails((async () => {
+  const b = writeBatch(C);
+  b.update(doc(C, "users/alice"), { duoId: null });
+  await b.commit();
+})()));
+await t("carol no libera el PIN de alice", assertFails(updateDoc(doc(C, "pins/ALICE1"), { duoId: null })));
+await t("alice se desempareja (termina para los dos)", assertSucceeds(leave(A, "alice", "ALICE1", "bob", "BOB222", "duoAB")));
+await t("bob quedó libre", assertSucceeds(getDoc(doc(B, "users/bob")).then((d) => { if (d.get("duoId") !== null) throw new Error("bob sigue en dúo"); })));
+await t("alice sigue leyendo su historial", assertSucceeds(getDocs(collection(A, "duos/duoAB/logs"))));
+await t("se puede consultar un dúo que no existe", assertSucceeds(getDoc(doc(A, "duos/noExiste"))));
+await t("vuelven a emparejarse y recuperan el dúo", assertSucceeds(runTransaction(A, async (tx) => {
+  const d = await tx.get(doc(A, "duos/duoAB"));
+  if (!d.exists()) throw new Error("no existe");
+  tx.update(doc(A, "duos/duoAB"), { ended: false, kind: "AMIGOS" });
+  tx.update(doc(A, "users/alice"), { duoId: "duoAB" });
+  tx.update(doc(A, "users/bob"), { duoId: "duoAB" });
+  tx.update(doc(A, "pins/ALICE1"), { duoId: "duoAB" });
+  tx.update(doc(A, "pins/BOB222"), { duoId: "duoAB" });
+})));
+await t("carol no puede reactivar el dúo de otros", assertFails(updateDoc(doc(C, "duos/duoAB"), { ended: false })));
+
 // ---------- Migración del dúo viejo (duos/main) ----------
 await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(ctx.firestore(), "duos/main"), { members: ["eve", "frank"] });

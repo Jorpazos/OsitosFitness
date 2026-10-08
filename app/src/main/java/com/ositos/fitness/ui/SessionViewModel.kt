@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.ositos.fitness.data.Account
+import com.ositos.fitness.data.DuoKind
 import com.ositos.fitness.data.DuoRepository
 import com.ositos.fitness.data.PinInfo
 import com.ositos.fitness.data.Profile
@@ -12,7 +13,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
 sealed interface Session {
@@ -48,6 +48,10 @@ class SessionViewModel(
 
     private var accountWatch: Job? = null
 
+    /** Mi cuenta (PIN y dúo actual), siempre actualizada. */
+    private val _account = MutableStateFlow<Account?>(null)
+    val account: StateFlow<Account?> = _account.asStateFlow()
+
     private val authListener = FirebaseAuth.AuthStateListener { refresh() }
 
     init {
@@ -69,13 +73,14 @@ class SessionViewModel(
             _session.value = Session.Loading
             try {
                 val account = repo.ensureAccount()
+                _account.value = account
                 val duoId = account.duoId
                 if (duoId == null) {
                     _session.value = Session.NeedsPartner(account)
-                    watchForPairing()
-                    return@launch
+                } else {
+                    enterDuo(duoId)
                 }
-                enterDuo(duoId)
+                watchAccount()
             } catch (e: Exception) {
                 _session.value = Session.Error(e.message ?: "Algo salió mal")
             }
@@ -94,15 +99,41 @@ class SessionViewModel(
         }
     }
 
-    /** Si el otro pone MI PIN, mi cuenta cambia sola: entramos al dúo sin hacer nada. */
-    private fun watchForPairing() {
+    /**
+     * Escucha mi cuenta todo el tiempo:
+     *  - si el otro pone MI PIN, entro al dúo sin hacer nada;
+     *  - si el otro se desempareja, vuelvo a la pantalla de emparejar.
+     */
+    private fun watchAccount() {
         accountWatch?.cancel()
         accountWatch = viewModelScope.launch {
-            val acc = repo.accountFlow().catch { }.firstOrNull { it?.duoId != null } ?: return@launch
-            val duoId = acc.duoId ?: return@launch
-            if (_session.value is Session.NeedsPartner) {
-                runCatching { enterDuo(duoId) }
-                    .onFailure { _session.value = Session.Error(it.message ?: "Algo salió mal") }
+            repo.accountFlow().catch { }.collect { acc ->
+                if (acc == null) return@collect
+                _account.value = acc
+                val duoId = acc.duoId
+                val current = _session.value
+                if (duoId == null && (current is Session.Ready || current is Session.NeedsProfile)) {
+                    repo.duoId = null
+                    _session.value = Session.NeedsPartner(acc)
+                } else if (duoId != null && current is Session.NeedsPartner && _pair.value !is PairState.Pairing) {
+                    runCatching { enterDuo(duoId) }
+                        .onFailure { _session.value = Session.Error(it.message ?: "Algo salió mal") }
+                }
+            }
+        }
+    }
+
+    fun leaveDuo(onError: (String) -> Unit) {
+        val acc = _account.value ?: return
+        viewModelScope.launch {
+            try {
+                repo.leaveDuo(acc)
+                val updated = acc.copy(duoId = null)
+                _account.value = updated
+                _pair.value = PairState.Idle
+                _session.value = Session.NeedsPartner(updated)
+            } catch (e: Exception) {
+                onError(e.message ?: "No se pudo desemparejar")
             }
         }
     }
@@ -118,19 +149,17 @@ class SessionViewModel(
         }
     }
 
-    fun confirmPair() {
+    fun confirmPair(kind: DuoKind) {
         val found = (_pair.value as? PairState.Found)?.info ?: return
         val account = (_session.value as? Session.NeedsPartner)?.account ?: return
         _pair.value = PairState.Pairing
-        accountWatch?.cancel()
         viewModelScope.launch {
             try {
-                val duoId = repo.pairWith(account, found.pin)
+                val duoId = repo.pairWith(account, found.pin, kind)
                 _pair.value = PairState.Idle
                 enterDuo(duoId)
             } catch (e: Exception) {
                 _pair.value = PairState.Error(e.message ?: "No se pudo emparejar")
-                watchForPairing()
             }
         }
     }
