@@ -322,6 +322,12 @@ private fun Analyzing() {
         CircularProgressIndicator()
         Spacer(Modifier.height(12.dp))
         Text(phrases[i], style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Puede tardar hasta un minuto si la IA está muy pedida 🐢",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

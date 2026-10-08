@@ -15,6 +15,7 @@ import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.ServiceDisabledException
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
+import com.google.firebase.ai.type.thinkingConfig
 import com.google.firebase.auth.auth
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.google.firebase.functions.functions
@@ -45,7 +46,7 @@ class AiLimitException : Exception("Llegaste al límite de 20 fotos por hoy. Ma�
 class AiRepository(private val context: Context) {
 
     companion object {
-        const val MAX_SIDE = 768
+        const val MAX_SIDE = 640
         const val JPEG_QUALITY = 70
         const val DAILY_LIMIT = 20
 
@@ -142,17 +143,18 @@ class AiRepository(private val context: Context) {
     private suspend fun callGemini(jpeg: ByteArray): JSONObject {
         // Google va retirando modelos: arrancamos por los actuales y, si responde "usá models/X",
         // agregamos X a la cola automáticamente (así la app se adapta sola sin actualizarla).
+        // El "lite" es el más rápido; el flash completo queda de respaldo.
         val attempts = ArrayDeque(
             listOf(
-                "gemini-3.8-flash" to true,
                 "gemini-3.5-flash-lite" to true,
-                "gemini-flash-latest" to true,
-                "gemini-3.8-flash" to false,
+                "gemini-3.8-flash" to true,
+                "gemini-flash-latest" to false,
             ),
         )
         val tried = mutableSetOf<Pair<String, Boolean>>()
         val errors = mutableListOf<String>()
-        val deadline = System.currentTimeMillis() + 75_000
+        // Los modelos nuevos son más lentos en la versión gratis: damos tiempo de sobra.
+        val deadline = System.currentTimeMillis() + 120_000
         val suggested = Regex("""models/([a-z0-9.\-]+)""")
         while (attempts.isNotEmpty() && tried.size < 7) {
             val (name, strictSchema) = attempts.removeFirst()
@@ -165,10 +167,12 @@ class AiRepository(private val context: Context) {
                     generationConfig = generationConfig {
                         responseMimeType = "application/json"
                         if (strictSchema) responseSchema = FOOD_SCHEMA
+                        // Estimar calorías no necesita razonamiento largo: pensar poco = respuesta rápida.
+                        thinkingConfig = thinkingConfig { thinkingBudget = 256 }
                     },
                     systemInstruction = content { text(SYSTEM_PROMPT) },
                 )
-                val response = withTimeout(minOf(30_000L, left)) {
+                val response = withTimeout(minOf(60_000L, left)) {
                     model.generateContent(
                         content {
                             inlineData(jpeg, "image/jpeg")
