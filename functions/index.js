@@ -27,8 +27,8 @@ const MAX_IMAGE_B64_CHARS = 1_500_000; // ~1,1 MB; una foto de 768px al 70% pesa
 
 const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");
 
-// El modelo más económico disponible.
-const MODEL = "claude-haiku-5-5";
+// Más preciso que Haiku para estimar porciones; ~US$0,004 por foto.
+const MODEL = "claude-sonnet-5-5";
 
 const SYSTEM_PROMPT =
   "Sos un nutricionista que estima calorías a partir de fotos de comida (cocina argentina incluida). " +
@@ -114,8 +114,9 @@ async function askClaude(apiKey, imageB64, mediaType) {
   const request = {
     model: MODEL,
     max_tokens: 300,
-    // Sin razonamiento extendido: los 300 tokens quedan para la respuesta (más barato y rápido).
-    thinking: { type: "disabled" },
+    // Sin razonamiento extendido (en Sonnet 5.5 se apaga con "between_tools"):
+    // los 300 tokens quedan para la respuesta y contesta más rápido.
+    thinking: { type: "between_tools" },
     system: SYSTEM_PROMPT,
     messages: [
       {
@@ -131,15 +132,18 @@ async function askClaude(apiKey, imageB64, mediaType) {
   let msg;
   try {
     // Salida estructurada: garantiza JSON con el esquema exacto.
-    msg = await client.messages.create({
+    msg = await client.beta.messages.create({
       ...request,
-      output_config: { format: { type: "json_schema", schema: FOOD_SCHEMA } },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: FOOD_SCHEMA } },
+      // Si Sonnet 5.5 rechazara por un falso positivo de sus filtros, reintenta solo en otro modelo.
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
     });
   } catch (err) {
     if (err instanceof Anthropic.BadRequestError) {
       // Si el modelo no aceptara salida estructurada, reintentamos solo con el system prompt.
       logger.warn("Reintento sin output_config", { message: err.message });
-      msg = await client.messages.create(request);
+      msg = await client.messages.create({ ...request, output_config: { effort: "medium" } });
     } else {
       throw err;
     }

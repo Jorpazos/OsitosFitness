@@ -10,7 +10,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-const MODEL = "claude-haiku-5-5";
+const MODEL = "claude-sonnet-5-5";
 const DAILY_PHOTO_LIMIT = 20;
 const MAX_IMAGE_B64_CHARS = 1_500_000;
 const TZ = "America/Argentina/Buenos_Aires";
@@ -112,7 +112,7 @@ async function askClaude(env, image, mediaType) {
   const request = {
     model: MODEL,
     max_tokens: 300,
-    thinking: { type: "disabled" },
+    thinking: { type: "between_tools" },
     system: SYSTEM_PROMPT,
     messages: [
       {
@@ -126,12 +126,15 @@ async function askClaude(env, image, mediaType) {
   };
   let msg;
   try {
-    msg = await client.messages.create({
+    msg = await client.beta.messages.create({
       ...request,
-      output_config: { format: { type: "json_schema", schema: FOOD_SCHEMA } },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: FOOD_SCHEMA } },
+      // Si Sonnet 5.5 rechazara por un falso positivo de sus filtros, reintenta solo en otro modelo.
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
     });
   } catch (err) {
-    if (err instanceof Anthropic.BadRequestError) msg = await client.messages.create(request);
+    if (err instanceof Anthropic.BadRequestError) msg = await client.messages.create({ ...request, output_config: { effort: "medium" } });
     else throw err;
   }
   if (msg.stop_reason === "refusal") throw new Error("refusal");

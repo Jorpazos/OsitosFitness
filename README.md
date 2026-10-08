@@ -15,7 +15,7 @@ Sin culpa, con mucho XP.
 |---|---|
 | **Perfil y cálculos** | IMC con barra de rangos, rango saludable (IMC 18,5–24,9), peso de referencia (IMC 22), metabolismo basal (Mifflin-St Jeor), gasto diario (TDEE), meta de kcal (déficit máx. 500, mantenimiento o superávit), cintura/cadera, fecha estimada según la tendencia real de 14 días |
 | **Límites de seguridad** | Nunca < 1200 kcal (mujer) / 1500 (hombre) · no deja poner objetivos con IMC < 18,5 · aviso amable si bajás > 1 kg/semana sostenido |
-| **Comidas** | Buscador con ~70 comidas argentinas (milanesa, empanadas, mate, medialunas, asado, fainá, chocotorta…), carga manual, y **foto con IA** (Claude Haiku 5.5) editable antes de guardar. Límite 20 fotos/día |
+| **Comidas** | Buscador con ~70 comidas argentinas (milanesa, empanadas, mate, medialunas, asado, fainá, chocotorta…), carga manual, y **foto con IA** (Claude Sonnet 5.5) editable antes de guardar. Límite 20 fotos/día |
 | **Ejercicio** | Kcal directas del reloj, o actividad + minutos + intensidad con METs (18 actividades) |
 | **Inicio** | Anillo animado de kcal (el ejercicio suma margen), agua en 1 toque, gráfico de peso con media móvil de 7 días, vista dividida **Vos \| Tu pareja** |
 | **Juego** | XP por hábitos, 12 niveles, racha individual y **racha de pareja**, duelo semanal con **prenda**, **pinchazos** con push (máx. 3/día, silenciables), alertas automáticas a la noche, 19 logros con animación Lottie, desafíos cooperativos, reacciones 👏🔥💪, resumen semanal tipo **wrapped** |
@@ -84,7 +84,7 @@ Así ni siquiera un tercero con el APK puede "ganarle de mano" a tu pareja al un
 
 La API key de Anthropic **nunca** va dentro del APK: vive solo en el backend.
 Sacá una key en <https://console.anthropic.com> → API Keys (cargá unos pocos dólares de crédito:
-con 2 personas y Haiku 5.5 cada foto cuesta una fracción de centavo).
+con 2 personas y Sonnet 5.5 cada foto cuesta menos de medio centavo de dólar).
 
 #### Opción A (recomendada): Cloud Functions — incluye las notificaciones push de los pinchazos
 
@@ -177,8 +177,9 @@ fijo permite actualizar sin desinstalar).
 
 - Firebase plan Spark (gratis): Auth + Firestore + Messaging sobran para 2 personas.
 - Cloud Functions (Blaze): capa gratuita de 2 M invocaciones/mes; en la práctica, USD 0.
-- IA: Claude Haiku 5.5 (el modelo más económico), ~300 tokens de salida por foto, imagen de 768 px:
-  fracciones de centavo por foto. El límite de 20 fotos/día por persona evita sorpresas.
+- IA: Claude Sonnet 5.5, imagen de 768 px y máx. 300 tokens de respuesta: ~US$0,005 por foto como
+  mucho (≈ US$1/mes con 6 fotos diarias entre los dos). El límite de 20 fotos/día por persona evita sorpresas.
+  Para abaratar ~20 veces, cambiá `MODEL` a `claude-haiku-5-5` en `functions/index.js` (y `thinking` a `disabled`).
 - Cloudflare Workers (opción B): plan Free (100.000 requests/día).
 
 ## Para desarrolladores
