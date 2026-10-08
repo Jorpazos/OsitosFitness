@@ -1,6 +1,6 @@
 # 🐻🐻 Ositos Fitness
 
-App Android privada para **una pareja** (exactamente 2 personas): registran peso, comida y ejercicio,
+App Android privada para **dúos** (2 personas: una pareja, dos amigas…): registran peso, comida y ejercicio,
 se ven el progreso mutuamente y se motivan como en un juego cooperativo (y un poquito competitivo).
 Sin culpa, con mucho XP.
 
@@ -169,7 +169,7 @@ fijo permite actualizar sin desinstalar).
 |---|---|
 | Al entrar con Google sale un error / "developer error" / código 10 | Falta el SHA-1 (y SHA-256) en la app Android de Firebase, o el `google-services.json` es de antes de agregarlo: descargalo de nuevo y actualizá el secreto. |
 | "Falta configurar Firebase" | No está el secreto `GOOGLE_SERVICES_JSON` (paso 5). |
-| "Este dúo ya está completo" | Ya entraron 2 cuentas. Si alguien entró con la cuenta equivocada, borrá el documento `duos/main` en la consola de Firestore y vuelvan a entrar (se pierde el historial). |
+| "No encontramos ese PIN" / "ya está en un dúo" | Revisen el PIN (6 caracteres, sin 0/O ni 1/I). Cada persona puede estar en un solo dúo. |
 | La foto con IA falla | Revisá que el backend esté desplegado (`firebase functions:log`), que el secreto tenga la key correcta y que tengas crédito en Anthropic. |
 | No llegan los pinchazos | Permitir notificaciones a la app; con la opción B pueden tardar hasta ~30 min si la app está cerrada. Algunas marcas (Xiaomi, Huawei…) matan los procesos en segundo plano: excluí la app de la optimización de batería. |
 

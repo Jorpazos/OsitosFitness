@@ -41,6 +41,7 @@ import com.ositos.fitness.ui.Session
 import com.ositos.fitness.ui.SessionViewModel
 import com.ositos.fitness.ui.components.BouncyButton
 import com.ositos.fitness.ui.screens.OnboardingFlow
+import com.ositos.fitness.ui.screens.PairScreen
 import com.ositos.fitness.ui.screens.ThemeMode
 import com.ositos.fitness.ui.screens.WelcomeScreen
 import com.ositos.fitness.ui.theme.OsitosTheme
@@ -84,16 +85,16 @@ class MainActivity : ComponentActivity() {
                             onToken = { sessionVm.signInWithGoogleToken(it, toast) },
                             onError = toast,
                         )
-                        Session.DuoFull -> Centered {
-                            Text("🐻🐻🚫", fontSize = 56.sp)
-                            Text("Este dúo ya está completo", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-                            Text(
-                                "Ositos Fitness es para exactamente 2 personas y ya entraron las dos (o tu mail no está habilitado). " +
-                                    "Si te equivocaste de cuenta, cerrá sesión y entrá con la correcta.",
-                                textAlign = TextAlign.Center,
+                        is Session.NeedsPartner -> {
+                            val pairState by sessionVm.pair.collectAsStateWithLifecycle()
+                            PairScreen(
+                                account = s.account,
+                                state = pairState,
+                                onSearch = sessionVm::searchPin,
+                                onConfirm = sessionVm::confirmPair,
+                                onReset = sessionVm::resetPair,
+                                onSignOut = { sessionVm.signOut() },
                             )
-                            Spacer(Modifier.height(16.dp))
-                            BouncyButton("Cerrar sesión", { sessionVm.signOut() })
                         }
                         is Session.Error -> Centered {
                             Text("😵", fontSize = 56.sp)
@@ -109,7 +110,7 @@ class MainActivity : ComponentActivity() {
                         is Session.Ready -> {
                             NotificationPermission()
                             val duoVm: DuoViewModel = viewModel(
-                                key = "duo_${s.uid}",
+                                key = "duo_${s.uid}_${s.duoId}",
                                 factory = viewModelFactory {
                                     initializer { DuoViewModel(container.repo, container.ai, s.uid) }
                                 },

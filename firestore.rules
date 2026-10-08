@@ -1,13 +1,13 @@
 rules_version = '2';
 
-// Ositos Fitness: todo vive bajo duos/main y solo lo pueden leer/escribir sus 2 miembros.
-// El primero que entra crea el dúo; el segundo se une solo; un tercero queda afuera.
+// Ositos Fitness: cada dúo (2 personas) vive en duos/{duoId} y solo lo leen/escriben sus 2 miembros.
+// Cada persona tiene un PIN propio (pins/{pin}); poniendo el PIN del otro se crea el dúo.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // OPCIONAL (recomendado): limitá el acceso a sus dos cuentas de Google.
+    // OPCIONAL: limitá quién puede usar la app a una lista de cuentas de Google.
     // Reemplazá "return true;" por:
-    //   return request.auth.token.email in ['vos@gmail.com', 'tu.pareja@gmail.com'];
+    //   return request.auth.token.email in ['vos@gmail.com', 'tu.pareja@gmail.com', 'amiga@gmail.com'];
     function emailAllowed() {
       return true;
     }
@@ -16,12 +16,12 @@ service cloud.firestore {
       return request.auth != null && emailAllowed();
     }
 
-    function duoPath() {
-      return /databases/$(database)/documents/duos/main;
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
     }
 
-    function isMember() {
-      return signedIn() && exists(duoPath()) && request.auth.uid in get(duoPath()).data.members;
+    function duoDoc(id) {
+      return /databases/$(database)/documents/duos/$(id);
     }
 
     function onlyChanges(keys) {
@@ -32,32 +32,94 @@ service cloud.firestore {
       return id.matches(request.auth.uid + '_.*');
     }
 
-    match /duos/main {
-      // Se puede leer si sos miembro, o si todavía hay lugar (para poder unirte).
+    // ---------- Usuarios y PINs ----------
+
+    match /users/{uid} {
+      // Te podés leer a vos, y a quien comparte dúo con vos.
       allow get: if signedIn() && (
-        resource == null
-        || request.auth.uid in resource.data.members
-        || resource.data.members.size() < 2
+        request.auth.uid == uid
+        || (resource.data.duoId != null
+            && get(userPath(request.auth.uid)).data.duoId == resource.data.duoId)
       );
 
-      // Crear el dúo: el primero se pone a sí mismo como único miembro.
-      allow create: if signedIn() && request.resource.data.members == [request.auth.uid];
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.duoId == null
+        && request.resource.data.pin is string;
 
       allow update: if signedIn() && (
-        // Unirse: el segundo se agrega a sí mismo y no toca nada más.
+        // Vos: el PIN no cambia; el dúo solo se asigna si estabas libre y sos miembro del dúo nuevo.
         (
-          resource.data.members.size() == 1
-          && !(request.auth.uid in resource.data.members)
-          && request.resource.data.members == resource.data.members.concat([request.auth.uid])
-          && onlyChanges(['members'])
+          request.auth.uid == uid
+          && request.resource.data.pin == resource.data.pin
+          && (
+            request.resource.data.duoId == resource.data.duoId
+            || (resource.data.duoId == null
+                && request.auth.uid in getAfter(duoDoc(request.resource.data.duoId)).data.members)
+          )
         )
         ||
-        // Miembros: pueden editar listas y marcadores, pero nunca la lista de miembros.
+        // Tu compañero/a te empareja: solo si estabas libre y el dúo nuevo es de ustedes dos.
         (
-          request.auth.uid in resource.data.members
-          && request.resource.data.members == resource.data.members
+          request.auth.uid != uid
+          && resource.data.duoId == null
+          && onlyChanges(['duoId'])
+          && uid in getAfter(duoDoc(request.resource.data.duoId)).data.members
+          && request.auth.uid in getAfter(duoDoc(request.resource.data.duoId)).data.members
         )
       );
+
+      allow delete: if false;
+    }
+
+    match /pins/{pin} {
+      // Cualquiera con sesión puede buscar un PIN (para emparejar).
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.duoId == null
+        && pin.matches('^[A-Z0-9]{6}$');
+
+      allow update: if signedIn() && (
+        // El dueño puede cambiar su nombre visible.
+        (resource.data.uid == request.auth.uid && onlyChanges(['name']))
+        ||
+        // Al emparejar: queda marcado con el dúo que se le asignó a su dueño.
+        (
+          resource.data.duoId == null
+          && onlyChanges(['duoId'])
+          && getAfter(userPath(resource.data.uid)).data.duoId == request.resource.data.duoId
+        )
+      );
+
+      allow delete: if false;
+    }
+
+    // ---------- Dúos ----------
+
+    match /duos/{duoId} {
+
+      function isMember() {
+        return signedIn() && request.auth.uid in get(duoDoc(duoId)).data.members;
+      }
+
+      allow get: if signedIn() && request.auth.uid in resource.data.members;
+
+      // Crear un dúo: exactamente 2 personas distintas (una sos vos), y en la misma operación
+      // las dos quedan apuntando a este dúo (las reglas de users/ exigen que estuvieran libres).
+      allow create: if signedIn()
+        && request.resource.data.members is list
+        && request.resource.data.members.size() == 2
+        && request.auth.uid in request.resource.data.members
+        && request.resource.data.members[0] != request.resource.data.members[1]
+        && getAfter(userPath(request.resource.data.members[0])).data.duoId == duoId
+        && getAfter(userPath(request.resource.data.members[1])).data.duoId == duoId;
+
+      // Miembros: pueden editar listas y marcadores, pero nunca la lista de miembros.
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.members
+        && request.resource.data.members == resource.data.members;
 
       allow delete: if false;
 

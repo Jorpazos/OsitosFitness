@@ -20,7 +20,6 @@ const db = getFirestore();
 // Debe coincidir con BuildConfig.FUNCTIONS_REGION de la app y con la ubicación de Firestore.
 const REGION = "southamerica-east1";
 const TZ = "America/Argentina/Buenos_Aires";
-const DUO = "duos/main";
 const DAILY_PHOTO_LIMIT = 20;
 const MAX_POKES_PER_DAY = 3;
 const MAX_IMAGE_B64_CHARS = 1_500_000; // ~1,1 MB; una foto de 768px al 70% pesa ~60-150 KB
@@ -66,17 +65,22 @@ function todayKey(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(date);
 }
 
-async function assertMember(uid) {
-  const duo = await db.doc(DUO).get();
+/** Devuelve la ruta del dúo de la persona (duos/{duoId}) o corta si no tiene dúo. */
+async function duoPathOf(uid) {
+  const user = await db.doc(`users/${uid}`).get();
+  const duoId = user.exists ? user.get("duoId") : null;
+  if (!duoId) throw new HttpsError("permission-denied", "Todavía no tenés dúo.");
+  const duo = await db.doc(`duos/${duoId}`).get();
   const members = (duo.exists && duo.get("members")) || [];
   if (!members.includes(uid)) {
     throw new HttpsError("permission-denied", "No sos parte de este dúo.");
   }
+  return `duos/${duoId}`;
 }
 
 /** Freno de seguridad: máx. 20 fotos por persona por día (por si algo queda en loop). */
-async function consumePhotoQuota(uid) {
-  const ref = db.doc(`${DUO}/aiUsage/${uid}_${todayKey()}`);
+async function consumePhotoQuota(duoPath, uid) {
+  const ref = db.doc(`${duoPath}/aiUsage/${uid}_${todayKey()}`);
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const count = snap.exists ? snap.get("count") || 0 : 0;
@@ -168,7 +172,7 @@ exports.analyzeFood = onCall(
   async (request) => {
     const uid = request.auth && request.auth.uid;
     if (!uid) throw new HttpsError("unauthenticated", "Iniciá sesión primero.");
-    await assertMember(uid);
+    const duoPath = await duoPathOf(uid);
 
     const image = request.data && request.data.image;
     const mediaType = (request.data && request.data.mediaType) || "image/jpeg";
@@ -182,7 +186,7 @@ exports.analyzeFood = onCall(
       throw new HttpsError("invalid-argument", "Formato de imagen no soportado.");
     }
 
-    await consumePhotoQuota(uid);
+    await consumePhotoQuota(duoPath, uid);
 
     try {
       const result = await askClaude(ANTHROPIC_API_KEY.value(), image, mediaType);
@@ -203,12 +207,13 @@ exports.analyzeFood = onCall(
 );
 
 exports.onPokeCreated = onDocumentCreated(
-  { document: `${DUO}/pokes/{pokeId}`, region: REGION },
+  { document: "duos/{duoId}/pokes/{pokeId}", region: REGION },
   async (event) => {
     const snap = event.data;
     if (!snap) return;
     const poke = snap.data();
     const pokeId = event.params.pokeId;
+    const DUO = `duos/${event.params.duoId}`;
 
     // Máximo 3 pinchazos por día por persona (además del control en la app).
     const startOfDay = new Date(`${todayKey()}T00:00:00-03:00`).getTime();

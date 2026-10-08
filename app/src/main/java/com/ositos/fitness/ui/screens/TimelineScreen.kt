@@ -167,7 +167,7 @@ private fun Bubble(e: LogEntry, s: DuoState, mine: Boolean, onReact: (String) ->
                 Text(emoji, fontSize = 20.sp)
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    "${if (mine) "Vos" else person?.name ?: "Tu pareja"} · ${"%02d:%02d".format(time.hour, time.minute)}",
+                    "${if (mine) "Vos" else person?.name ?: "Tu compa"} · ${"%02d:%02d".format(time.hour, time.minute)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -205,7 +205,7 @@ private fun ReactionsRow(e: LogEntry, s: DuoState, canReact: Boolean, onReact: (
             }
             if (e.reactions.isNotEmpty()) {
                 Text(
-                    "de ${s.partner?.name ?: "tu pareja"}",
+                    "de ${s.partner?.name ?: "tu compa"}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -18,7 +18,7 @@
           ▼                                                  ▼
 ┌──────────────────────┐         ┌──────────────────────────────────────────────┐
 │  Cloud Firestore     │◄────────│  Cloud Functions (southamerica-east1)        │
-│  duos/main/...       │ trigger │   analyzeFood (callable) → API de Anthropic   │
+│  users, pins, duos/… │ trigger │   analyzeFood (callable) → API de Anthropic   │
 │  reglas: solo los 2  │────────►│   onPokeCreated → push FCM al otro            │
 └──────────────────────┘         └──────────────────────────────────────────────┘
                                    Alternativa gratis: Cloudflare Worker (solo IA)
@@ -34,19 +34,22 @@
 
 ## Modelo de datos de Firestore
 
-Todo vive bajo **un único dúo**: `duos/main`. El primero que entra lo crea; el segundo se agrega
-solo; un tercero no puede ni leerlo.
+Cada persona tiene una cuenta con un **PIN propio** de 6 caracteres. Poniendo el PIN del otro se crea
+un dúo `duos/{duoId}` con las dos personas, y todo lo del dúo vive adentro. Puede haber muchos dúos
+(una pareja, dos amigas…), totalmente aislados entre sí por las reglas de seguridad.
 
 | Ruta | Contenido | Quién escribe |
 |---|---|---|
-| `duos/main` | `members: [uid1, uid2]`, `createdAt`, `pokeMessages[]`, `forfeits[]` (prendas), `duelsWon{uid: n}`, `ties`, `coopDone` | Creación/unión con reglas especiales; luego los miembros (sin tocar `members`) |
-| `duos/main/profiles/{uid}` | `nickname`, `avatar`, `color`, `sex`, `age`, `heightCm`, `weightKg`, `startWeightKg`, `targetWeightKg`, `activity`, `measures{waistCm, hipCm, chestCm, armCm, thighCm}`, `goalKcal`, `fcmToken`, `pokesMutedUntil`, `pokesSent`, `achievements{id: timestamp}`, `onboarded` | Solo el dueño |
-| `duos/main/days/{uid}_{yyyy-MM-dd}` | `uid`, `dayKey`, `goalKcal`, `meals`, `exercises`, `water`, `weighed`, `kcalIn`, `kcalOut` (contadores con `increment`) | Solo el dueño |
-| `duos/main/weights/{uid}_{yyyy-MM-dd}` | `uid`, `dayKey`, `kg` (uno por día) | Solo el dueño |
-| `duos/main/logs/{autoId}` | Línea de tiempo: `uid`, `type` (MEAL, EXERCISE, WEIGHT, POKE, ACHIEVEMENT, DUEL), `ts`, `dayKey`, `title`, `detail`, `emoji`, `kcal`, `weightKg`, `reactions{uid: emoji}` | Crea el dueño; el otro solo puede tocar **su** reacción |
-| `duos/main/weeks/{yyyy-Www}` | Duelo y desafío: `forfeit`, `forfeitBy`, `coopType`, `coopTarget`, `closed`, `winnerUid`, `xp{uid: n}`, `coopAchieved` | Miembros (el cierre es una transacción idempotente) |
-| `duos/main/pokes/{autoId}` | `from`, `to`, `fromName`, `message`, `ts`, `delivered` | Crea quien pincha; solo el destinatario marca `delivered` |
-| `duos/main/aiUsage/{uid}_{día}` | `count` de fotos analizadas hoy | Solo la Cloud Function |
+| `users/{uid}` | `uid`, `pin`, `name`, `email`, `duoId` (null hasta emparejarse) | El dueño; el compa solo puede asignarle `duoId` al emparejar, y solo si estaba libre |
+| `pins/{PIN}` | `uid`, `name`, `duoId` — para buscar a alguien por PIN | El dueño lo crea; se marca con el `duoId` al emparejar |
+| `duos/{duoId}` | `members: [uid1, uid2]`, `createdAt`, `pokeMessages[]`, `forfeits[]` (prendas), `duelsWon{uid: n}`, `ties`, `coopDone` | Se crea al emparejar (2 personas libres, en una sola transacción); luego los miembros, sin tocar `members` |
+| `duos/{duoId}/profiles/{uid}` | `nickname`, `avatar`, `color`, `sex`, `age`, `heightCm`, `weightKg`, `startWeightKg`, `targetWeightKg`, `activity`, `measures{waistCm, hipCm, chestCm, armCm, thighCm}`, `goalKcal`, `fcmToken`, `pokesMutedUntil`, `pokesSent`, `achievements{id: timestamp}`, `onboarded` | Solo el dueño |
+| `duos/{duoId}/days/{uid}_{yyyy-MM-dd}` | `uid`, `dayKey`, `goalKcal`, `meals`, `exercises`, `water`, `weighed`, `kcalIn`, `kcalOut` (contadores con `increment`) | Solo el dueño |
+| `duos/{duoId}/weights/{uid}_{yyyy-MM-dd}` | `uid`, `dayKey`, `kg` (uno por día) | Solo el dueño |
+| `duos/{duoId}/logs/{autoId}` | Línea de tiempo: `uid`, `type` (MEAL, EXERCISE, WEIGHT, POKE, ACHIEVEMENT, DUEL), `ts`, `dayKey`, `title`, `detail`, `emoji`, `kcal`, `weightKg`, `reactions{uid: emoji}` | Crea el dueño; el otro solo puede tocar **su** reacción |
+| `duos/{duoId}/weeks/{yyyy-Www}` | Duelo y desafío: `forfeit`, `forfeitBy`, `coopType`, `coopTarget`, `closed`, `winnerUid`, `xp{uid: n}`, `coopAchieved` | Miembros (el cierre es una transacción idempotente) |
+| `duos/{duoId}/pokes/{autoId}` | `from`, `to`, `fromName`, `message`, `ts`, `delivered` | Crea quien pincha; solo el destinatario marca `delivered` |
+| `duos/{duoId}/aiUsage/{uid}_{día}` | `count` de fotos analizadas hoy | Solo la Cloud Function |
 
 No se necesitan índices compuestos: todas las consultas son por un solo campo o igualdades.
 
@@ -67,3 +70,8 @@ No se necesitan índices compuestos: todas las consultas son por un solo campo o
 - Déficit máximo de 500 kcal/día (≈ 0,5 kg/semana).
 - No se acepta un peso objetivo con IMC < 18,5.
 - Si la tendencia de 14 días muestra una bajada > 1 kg/semana, aviso amable para consultar a un profesional.
+
+## Migración desde la versión de un solo dúo
+
+La primera versión usaba un dúo fijo `duos/main`. Al abrir la versión con PINs, cada miembro de
+`duos/main` recibe su PIN y queda asignado automáticamente a ese dúo: no se pierde nada.

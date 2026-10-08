@@ -22,7 +22,7 @@ object Notifications {
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_POKES, "Pinchazos", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Cuando tu pareja te pincha 📌"
+                description = "Cuando tu compa te pincha 📌"
             },
         )
         nm.createNotificationChannel(

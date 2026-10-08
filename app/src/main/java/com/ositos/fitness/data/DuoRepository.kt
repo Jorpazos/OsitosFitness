@@ -18,29 +18,43 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-enum class JoinResult { CREATED, JOINED, ALREADY_MEMBER, FULL }
+/** Lo que guarda cada persona en users/{uid}: su PIN y (si ya se emparejó) su dúo. */
+data class Account(val uid: String, val pin: String, val name: String, val duoId: String?)
 
-class DuoFullException : Exception("Este dúo ya tiene a sus dos ositos")
+/** Lo que se ve al buscar un PIN. */
+data class PinInfo(val pin: String, val uid: String, val name: String, val duoId: String?)
+
+class PairException(message: String) : Exception(message)
 
 /**
- * Acceso a Firestore. Todo vive bajo un único documento "duos/main":
- * el primero que entra lo crea y el segundo se une solo (sin códigos de invitación).
+ * Acceso a Firestore. Cada persona tiene users/{uid} con un PIN propio (pins/{pin}).
+ * Poniendo el PIN del otro se crea duos/{duoId} con los dos, y todo lo del dúo vive ahí adentro.
  */
 class DuoRepository(
     private val db: FirebaseFirestore = Firebase.firestore,
     val auth: FirebaseAuth = Firebase.auth,
 ) {
     companion object {
-        const val DUO_ID = "main"
+        /** Dúo de la primera versión de la app (antes de los PINs): se migra solo. */
+        const val LEGACY_DUO_ID = "main"
+        private const val PIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // sin 0/O ni 1/I
+        const val PIN_LENGTH = 6
     }
 
-    private val duoRef: DocumentReference get() = db.collection("duos").document(DUO_ID)
+    /** Dúo activo; lo fija la sesión al entrar. */
+    @Volatile
+    var duoId: String? = null
+
+    private val duoRef: DocumentReference
+        get() = db.collection("duos").document(duoId ?: error("Todavía no tenés dúo"))
     private fun profiles() = duoRef.collection("profiles")
     private fun days() = duoRef.collection("days")
     private fun weights() = duoRef.collection("weights")
     private fun logs() = duoRef.collection("logs")
     private fun weeks() = duoRef.collection("weeks")
     private fun pokes() = duoRef.collection("pokes")
+    private fun users() = db.collection("users")
+    private fun pins() = db.collection("pins")
 
     val uid: String? get() = auth.currentUser?.uid
 
@@ -53,31 +67,116 @@ class DuoRepository(
         auth.signInWithCredential(cred).await()
     }
 
-    fun signOut() = auth.signOut()
+    fun signOut() {
+        duoId = null
+        auth.signOut()
+    }
 
-    // ---------- Dúo ----------
+    // ---------- Cuenta, PIN y emparejamiento ----------
 
-    suspend fun joinOrCreateDuo(): JoinResult {
+    private fun accountFrom(d: com.google.firebase.firestore.DocumentSnapshot): Account? {
+        if (!d.exists()) return null
+        return Account(
+            uid = d.id,
+            pin = d.getString("pin") ?: return null,
+            name = d.getString("name") ?: "",
+            duoId = d.getString("duoId"),
+        )
+    }
+
+    private fun randomPin(): String = (1..PIN_LENGTH).map { PIN_ALPHABET.random() }.joinToString("")
+
+    /**
+     * Devuelve la cuenta, creándola con un PIN único si es la primera vez.
+     * Si la persona ya estaba en el dúo de la versión anterior, la migra a ese dúo.
+     */
+    suspend fun ensureAccount(): Account {
         val me = requireUid()
-        return db.runTransaction { tx ->
-            val snap = tx.get(duoRef)
-            if (!snap.exists()) {
-                tx.set(duoRef, mapOf("members" to listOf(me), "createdAt" to System.currentTimeMillis()))
-                JoinResult.CREATED
-            } else {
-                @Suppress("UNCHECKED_CAST")
-                val members = (snap.get("members") as? List<String>) ?: emptyList()
-                when {
-                    me in members -> JoinResult.ALREADY_MEMBER
-                    members.size >= 2 -> JoinResult.FULL
-                    else -> {
-                        tx.update(duoRef, "members", members + me)
-                        JoinResult.JOINED
-                    }
+        val name = auth.currentUser?.displayName?.substringBefore(" ")?.take(20) ?: ""
+        var account = accountFrom(users().document(me).get().await())
+        if (account == null) {
+            for (attempt in 1..8) {
+                val pin = randomPin()
+                val created = db.runTransaction { tx ->
+                    if (tx.get(pins().document(pin)).exists()) return@runTransaction false
+                    tx.set(
+                        users().document(me),
+                        mapOf(
+                            "uid" to me, "pin" to pin, "name" to name, "duoId" to null,
+                            "email" to auth.currentUser?.email, "createdAt" to System.currentTimeMillis(),
+                        ),
+                    )
+                    tx.set(pins().document(pin), mapOf("uid" to me, "name" to name, "duoId" to null))
+                    true
+                }.await()
+                if (created) {
+                    account = Account(me, pin, name, null)
+                    break
                 }
             }
-        }.await()
+        }
+        val acc = account ?: error("No pude generar tu PIN, probá de nuevo")
+        if (acc.duoId != null) return acc
+
+        // Migración: ¿estaba en el dúo único de la versión anterior?
+        val legacy = runCatching { db.collection("duos").document(LEGACY_DUO_ID).get().await() }.getOrNull()
+        @Suppress("UNCHECKED_CAST")
+        val legacyMembers = legacy?.get("members") as? List<String>
+        if (legacyMembers != null && me in legacyMembers) {
+            val batch = db.batch()
+            batch.update(users().document(me), "duoId", LEGACY_DUO_ID)
+            batch.update(pins().document(acc.pin), "duoId", LEGACY_DUO_ID)
+            batch.commit().await()
+            return acc.copy(duoId = LEGACY_DUO_ID)
+        }
+        return acc
     }
+
+    /** Escucha mi cuenta: así me entero cuando el otro pone mi PIN y quedamos emparejados. */
+    fun accountFlow(): Flow<Account?> = callbackFlow {
+        val reg = users().document(requireUid()).addSnapshotListener { s, e ->
+            if (e != null) { close(e); return@addSnapshotListener }
+            trySend(s?.let { accountFrom(it) })
+        }
+        awaitClose { reg.remove() }
+    }
+
+    suspend fun findPin(raw: String): PinInfo {
+        val pin = raw.uppercase().filter { it.isLetterOrDigit() }
+        if (pin.length != PIN_LENGTH) throw PairException("El PIN tiene $PIN_LENGTH caracteres")
+        val d = pins().document(pin).get().await()
+        if (!d.exists()) throw PairException("No encontramos ese PIN. Revisalo con tu compañero/a 🔍")
+        val info = PinInfo(pin, d.getString("uid") ?: "", d.getString("name") ?: "Alguien", d.getString("duoId"))
+        if (info.uid == uid) throw PairException("¡Ese es tu propio PIN! 😅 Poné el de tu compañero/a")
+        if (info.duoId != null) throw PairException("${info.name} ya está en un dúo")
+        return info
+    }
+
+    /** Crea el dúo con la persona del PIN. Los dos quedan emparejados al instante. */
+    suspend fun pairWith(me: Account, partnerPin: String): String {
+        val newDuo = db.collection("duos").document()
+        db.runTransaction { tx ->
+            val pinSnap = tx.get(pins().document(partnerPin))
+            if (!pinSnap.exists()) throw PairException("No encontramos ese PIN")
+            val other = pinSnap.getString("uid") ?: throw PairException("PIN inválido")
+            if (other == me.uid) throw PairException("¡Ese es tu propio PIN! 😅")
+            if (pinSnap.getString("duoId") != null) throw PairException("Esa persona ya está en un dúo")
+            val mine = tx.get(users().document(me.uid))
+            if (mine.getString("duoId") != null) throw PairException("Ya estás en un dúo")
+            tx.set(
+                newDuo,
+                mapOf("members" to listOf(me.uid, other), "createdAt" to System.currentTimeMillis(), "pairedBy" to me.uid),
+            )
+            tx.update(users().document(me.uid), "duoId", newDuo.id)
+            tx.update(users().document(other), "duoId", newDuo.id)
+            tx.update(pins().document(me.pin), "duoId", newDuo.id)
+            tx.update(pins().document(partnerPin), "duoId", newDuo.id)
+            null
+        }.await()
+        return newDuo.id
+    }
+
+    // ---------- Dúo ----------
 
     fun duoFlow(): Flow<Duo?> = callbackFlow {
         val reg = duoRef.addSnapshotListener { s, e ->

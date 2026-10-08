@@ -126,7 +126,7 @@ fun WelcomeScreen(onToken: (String) -> Unit, onError: (String) -> Unit) {
         Text("Ositos Fitness", style = MaterialTheme.typography.displaySmall, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(
-            "El juego cooperativo (y un poquito competitivo) para que se cuiden de a dos. " +
+            "El juego cooperativo (y un poquito competitivo) para cuidarse de a dos. " +
                 "Sin culpa, con mucho XP.",
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
@@ -156,7 +156,7 @@ fun WelcomeScreen(onToken: (String) -> Unit, onError: (String) -> Unit) {
         }
         Spacer(Modifier.height(12.dp))
         Text(
-            "El primero que entra crea el dúo; el segundo se une solo. Nadie más puede entrar.",
+            "Después de entrar te damos un PIN para armar tu dúo con quien quieras.",
             style = MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -262,7 +262,7 @@ private fun IdentityStep(profile: Profile, onChange: (Profile) -> Unit, onNext: 
             Column {
                 Text("¿Cómo te decimos?", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "Tu pareja va a ver este apodo en todo: \"${profile.nickname.ifBlank { "Osito" }} te pinchó 📌\"",
+                    "Tu compa va a ver este apodo en todo: \"${profile.nickname.ifBlank { "Osito" }} te pinchó 📌\"",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

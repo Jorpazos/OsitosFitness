@@ -67,7 +67,7 @@ data class DuoState(
     val hasPartner get() = partner != null
     fun nameOf(uid: String?): String = when (uid) {
         me?.profile?.uid -> me?.name ?: "Vos"
-        partner?.profile?.uid -> partner?.name ?: "Tu pareja"
+        partner?.profile?.uid -> partner?.name ?: "Tu compa"
         else -> "Alguien"
     }
     fun personOf(uid: String?): PersonSummary? = when (uid) {

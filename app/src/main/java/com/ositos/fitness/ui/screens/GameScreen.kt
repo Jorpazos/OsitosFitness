@@ -79,7 +79,7 @@ fun GameScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StreakCard("Tu racha", me.streak, "récord ${me.bestStreak}", Modifier.weight(1f), "🔥")
                 if (s.partner != null) {
-                    StreakCard("Racha de pareja", s.coupleStreak, "récord ${s.bestCoupleStreak}", Modifier.weight(1f), "💞")
+                    StreakCard("Racha del dúo", s.coupleStreak, "récord ${s.bestCoupleStreak}", Modifier.weight(1f), "💞")
                 }
             }
         }

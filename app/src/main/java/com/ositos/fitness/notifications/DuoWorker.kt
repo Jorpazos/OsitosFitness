@@ -43,7 +43,10 @@ class DuoWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, p
         val prefs = applicationContext.getSharedPreferences("worker", Context.MODE_PRIVATE)
 
         runCatching {
-            val profiles = Firebase.firestore.collection("duos").document(DuoRepository.DUO_ID)
+            val duoId = Firebase.firestore.collection("users").document(me).get().await()
+                .getString("duoId") ?: return Result.success()
+            repo.duoId = duoId
+            val profiles = Firebase.firestore.collection("duos").document(duoId)
                 .collection("profiles").get().await().documents.mapNotNull { Profile.from(it) }
             val partner = profiles.firstOrNull { it.uid != me }
             val mine = profiles.firstOrNull { it.uid == me }
@@ -52,7 +55,7 @@ class DuoWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, p
             // 1) Pinchazos pendientes (respaldo del push).
             repo.undeliveredPokesToMe().forEach { poke ->
                 if (!muted) {
-                    val who = partner?.nickname ?: "Tu pareja"
+                    val who = partner?.nickname ?: "Tu compa"
                     Notifications.show(applicationContext, poke.id.hashCode(), "📌 $who te pinchó", poke.message)
                 }
                 runCatching { repo.markPokeDelivered(poke.id) }
@@ -62,7 +65,7 @@ class DuoWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, p
             val now = LocalTime.now()
             val today = Dates.todayKey()
             if (partner != null && now.hour in 20..22) {
-                val days = Firebase.firestore.collection("duos").document(DuoRepository.DUO_ID)
+                val days = Firebase.firestore.collection("duos").document(duoId)
                     .collection("days").whereEqualTo("dayKey", today).get().await()
                     .documents.mapNotNull { dayStatsFrom(it) }
                 val myDay = days.firstOrNull { it.uid == me }

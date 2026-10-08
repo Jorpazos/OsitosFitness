@@ -1,5 +1,8 @@
 import { initializeTestEnvironment, assertSucceeds, assertFails } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, runTransaction, increment, writeBatch, deleteField } from "firebase/firestore";
+import {
+  doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs,
+  runTransaction, increment, writeBatch, deleteField,
+} from "firebase/firestore";
 import fs from "fs";
 
 const env = await initializeTestEnvironment({
@@ -7,71 +10,125 @@ const env = await initializeTestEnvironment({
   firestore: { rules: fs.readFileSync(new URL("../firestore.rules", import.meta.url), "utf8"), host: "127.0.0.1", port: 8085 },
 });
 const db = (u) => env.authenticatedContext(u, { email: `${u}@gmail.com` }).firestore();
-const A = db("alice"), B = db("bob"), C = db("carol");
+const A = db("alice"), B = db("bob"), C = db("carol"), D = db("dave");
 const anon = env.unauthenticatedContext().firestore();
 let pass = 0, fail = 0;
-async function t(name, p) { try { await p; pass++; console.log("ok  ", name); } catch (e) { fail++; console.log("FAIL", name, e.message); } }
+async function t(name, p) {
+  try { await p; pass++; console.log("ok  ", name); } catch (e) { fail++; console.log("FAIL", name, e.message); }
+}
 
-async function join(f, uid) {
+// Lo mismo que hace la app: crea users/{uid} + pins/{pin} en una transacción.
+async function register(f, uid, pin, name) {
   return runTransaction(f, async (tx) => {
-    const ref = doc(f, "duos/main");
-    const s = await tx.get(ref);
-    if (!s.exists()) { tx.set(ref, { members: [uid], createdAt: 1 }); return "CREATED"; }
-    const m = s.get("members");
-    if (m.includes(uid)) return "ALREADY";
-    if (m.length >= 2) return "FULL";
-    tx.update(ref, { members: [...m, uid] }); return "JOINED";
+    const p = await tx.get(doc(f, `pins/${pin}`));
+    if (p.exists()) throw new Error("PIN ocupado");
+    tx.set(doc(f, `users/${uid}`), { uid, pin, name, duoId: null, createdAt: 1 });
+    tx.set(doc(f, `pins/${pin}`), { uid, name, duoId: null });
   });
 }
 
-await t("anon cannot read duo", assertFails(getDoc(doc(anon, "duos/main"))));
-await t("alice creates duo", assertSucceeds(join(A, "alice")));
-await t("carol cannot create with 2 members", assertFails(setDoc(doc(C, "duos/main"), { members: ["carol", "x"] })));
-await t("bob joins", assertSucceeds(join(B, "bob")));
-await t("alice rejoin is noop", assertSucceeds(join(A, "alice")));
-await t("carol cannot read full duo", assertFails(getDoc(doc(C, "duos/main"))));
-await t("carol cannot add herself", assertFails(updateDoc(doc(C, "duos/main"), { members: ["alice", "bob", "carol"] })));
+// Lo mismo que hace la app al poner el PIN del otro.
+async function pair(f, me, myPin, partnerPin, duoId) {
+  return runTransaction(f, async (tx) => {
+    const pinSnap = await tx.get(doc(f, `pins/${partnerPin}`));
+    if (!pinSnap.exists()) throw new Error("PIN inexistente");
+    const other = pinSnap.get("uid");
+    if (pinSnap.get("duoId")) throw new Error("ya emparejado");
+    tx.set(doc(f, `duos/${duoId}`), { members: [me, other], createdAt: 1, pairedBy: me });
+    tx.update(doc(f, `users/${me}`), { duoId });
+    tx.update(doc(f, `users/${other}`), { duoId });
+    tx.update(doc(f, `pins/${myPin}`), { duoId });
+    tx.update(doc(f, `pins/${partnerPin}`), { duoId });
+  });
+}
 
-await t("alice writes own profile", assertSucceeds(setDoc(doc(A, "duos/main/profiles/alice"), { uid: "alice", nickname: "Osita" }, { merge: true })));
-await t("bob writes own profile", assertSucceeds(setDoc(doc(B, "duos/main/profiles/bob"), { uid: "bob", nickname: "Oso" }, { merge: true })));
-await t("alice cannot write bob profile", assertFails(setDoc(doc(A, "duos/main/profiles/bob"), { nickname: "x" }, { merge: true })));
-await t("bob reads profiles list", assertSucceeds(getDocs(collection(B, "duos/main/profiles"))));
-await t("carol cannot read profiles", assertFails(getDocs(collection(C, "duos/main/profiles"))));
+// ---------- Registro y PINs ----------
+await t("anon no lee pins", assertFails(getDoc(doc(anon, "pins/AAAAAA"))));
+await t("alice se registra", assertSucceeds(register(A, "alice", "ALICE1", "Alice")));
+await t("bob se registra", assertSucceeds(register(B, "bob", "BOB222", "Bob")));
+await t("carol se registra", assertSucceeds(register(C, "carol", "CAROL3", "Carol")));
+await t("dave se registra", assertSucceeds(register(D, "dave", "DAVE44", "Dave")));
+await t("no se puede robar un PIN ajeno", assertFails(setDoc(doc(C, "pins/ALICE1"), { uid: "carol", duoId: null })));
+await t("PIN con formato inválido", assertFails(setDoc(doc(C, "pins/abc"), { uid: "carol", duoId: null })));
+await t("no se puede crear el user de otro", assertFails(setDoc(doc(C, "users/zed"), { uid: "zed", pin: "ZZZZZZ", duoId: null })));
+await t("buscar un PIN", assertSucceeds(getDoc(doc(B, "pins/ALICE1"))));
+await t("no se pueden listar PINs", assertFails(getDocs(collection(B, "pins"))));
+await t("no se lee el user de un desconocido", assertFails(getDoc(doc(B, "users/alice"))));
+await t("no se cambia el PIN propio", assertFails(updateDoc(doc(A, "users/alice"), { pin: "OTRO11" })));
+
+// ---------- Emparejar ----------
+await t("bob se empareja con el PIN de alice", assertSucceeds(pair(B, "bob", "BOB222", "ALICE1", "duoAB")));
+await t("alice lee su user con duoId", assertSucceeds(getDoc(doc(A, "users/alice"))));
+await t("alice lee el user de bob (mismo dúo)", assertSucceeds(getDoc(doc(A, "users/bob"))));
+await t("carol no lee users de otro dúo", assertFails(getDoc(doc(C, "users/alice"))));
+await t("carol no puede emparejarse con alice (ya emparejada)", pair(C, "carol", "CAROL3", "ALICE1", "duoCA").then(
+  () => { throw new Error("debió fallar"); },
+  () => undefined,
+));
+await t("carol no puede meter a alice a la fuerza", assertFails((async () => {
+  const b = writeBatch(C);
+  b.set(doc(C, "duos/duoX"), { members: ["carol", "alice"] });
+  b.update(doc(C, "users/carol"), { duoId: "duoX" });
+  b.update(doc(C, "users/alice"), { duoId: "duoX" });
+  await b.commit();
+})()));
+await t("no se crea un dúo de 3", assertFails((async () => {
+  const b = writeBatch(C);
+  b.set(doc(C, "duos/duoY"), { members: ["carol", "dave", "x"] });
+  b.update(doc(C, "users/carol"), { duoId: "duoY" });
+  b.update(doc(C, "users/dave"), { duoId: "duoY" });
+  await b.commit();
+})()));
+await t("no se crea un dúo sin actualizar los users", assertFails(setDoc(doc(C, "duos/duoZ"), { members: ["carol", "dave"] })));
+await t("dave se empareja con carol (segundo dúo)", assertSucceeds(pair(D, "dave", "DAVE44", "CAROL3", "duoCD")));
+await t("alice no puede cambiarse de dúo", assertFails(updateDoc(doc(A, "users/alice"), { duoId: "duoCD" })));
+
+// ---------- Datos dentro del dúo ----------
+await t("alice lee su dúo", assertSucceeds(getDoc(doc(A, "duos/duoAB"))));
+await t("carol no lee el dúo de alice", assertFails(getDoc(doc(C, "duos/duoAB"))));
+await t("alice escribe su perfil", assertSucceeds(setDoc(doc(A, "duos/duoAB/profiles/alice"), { uid: "alice", nickname: "Osita" }, { merge: true })));
+await t("bob escribe su perfil", assertSucceeds(setDoc(doc(B, "duos/duoAB/profiles/bob"), { uid: "bob", nickname: "Oso" }, { merge: true })));
+await t("alice no escribe el perfil de bob", assertFails(setDoc(doc(A, "duos/duoAB/profiles/bob"), { nickname: "x" }, { merge: true })));
+await t("bob lee perfiles", assertSucceeds(getDocs(collection(B, "duos/duoAB/profiles"))));
+await t("carol no lee perfiles de otro dúo", assertFails(getDocs(collection(C, "duos/duoAB/profiles"))));
+await t("carol no escribe en otro dúo", assertFails(setDoc(doc(C, "duos/duoAB/profiles/carol"), { uid: "carol" })));
 
 const batch = writeBatch(A);
-batch.set(doc(A, "duos/main/days/alice_2026-10-07"), { uid: "alice", dayKey: "2026-10-07", goalKcal: 1800, meals: increment(1), kcalIn: increment(400) }, { merge: true });
-batch.set(doc(A, "duos/main/logs/l1"), { uid: "alice", type: "MEAL", ts: 1, dayKey: "2026-10-07", title: "Milanesa", detail: "", emoji: "🥩", kcal: 400, weightKg: null, reactions: {} });
-await t("alice logs meal (batch day+log)", assertSucceeds(batch.commit()));
-await t("alice decrement merge", assertSucceeds(setDoc(doc(A, "duos/main/days/alice_2026-10-07"), { meals: increment(-1) }, { merge: true })));
-await t("alice cannot write bob day", assertFails(setDoc(doc(A, "duos/main/days/bob_2026-10-07"), { uid: "alice", meals: 1 })));
-await t("alice cannot spoof uid in day", assertFails(setDoc(doc(A, "duos/main/days/alice_2026-10-08"), { uid: "bob", meals: 1 })));
-await t("alice weight", assertSucceeds(setDoc(doc(A, "duos/main/weights/alice_2026-10-07"), { uid: "alice", dayKey: "2026-10-07", kg: 70 })));
-await t("bob reads days", assertSucceeds(getDocs(collection(B, "duos/main/days"))));
-await t("bob reacts", assertSucceeds(updateDoc(doc(B, "duos/main/logs/l1"), { "reactions.bob": "🔥" })));
-await t("bob removes reaction", assertSucceeds(updateDoc(doc(B, "duos/main/logs/l1"), { "reactions.bob": deleteField() })));
-await t("bob cannot react as alice", assertFails(updateDoc(doc(B, "duos/main/logs/l1"), { "reactions.alice": "🔥" })));
-await t("bob cannot edit title", assertFails(updateDoc(doc(B, "duos/main/logs/l1"), { title: "Ensalada" })));
-await t("bob cannot delete alice log", assertFails(deleteDoc(doc(B, "duos/main/logs/l1"))));
-await t("bob cannot create log as alice", assertFails(setDoc(doc(B, "duos/main/logs/l2"), { uid: "alice", ts: 2 })));
-await t("logs ordered query by member", assertSucceeds(getDocs(query(collection(B, "duos/main/logs"), orderBy("ts", "desc"), limit(200)))));
-await t("logs query by carol fails", assertFails(getDocs(query(collection(C, "duos/main/logs"), orderBy("ts", "desc"), limit(200)))));
-await t("alice deletes own log", assertSucceeds(deleteDoc(doc(A, "duos/main/logs/l1"))));
+batch.set(doc(A, "duos/duoAB/days/alice_2026-10-07"), { uid: "alice", dayKey: "2026-10-07", goalKcal: 1800, meals: increment(1), kcalIn: increment(400) }, { merge: true });
+batch.set(doc(A, "duos/duoAB/logs/l1"), { uid: "alice", type: "MEAL", ts: 1, dayKey: "2026-10-07", title: "Milanesa", detail: "", emoji: "🥩", kcal: 400, weightKg: null, reactions: {} });
+await t("alice registra comida", assertSucceeds(batch.commit()));
+await t("alice no escribe el día de bob", assertFails(setDoc(doc(A, "duos/duoAB/days/bob_2026-10-07"), { uid: "alice", meals: 1 })));
+await t("bob reacciona", assertSucceeds(updateDoc(doc(B, "duos/duoAB/logs/l1"), { "reactions.bob": "🔥" })));
+await t("bob saca su reacción", assertSucceeds(updateDoc(doc(B, "duos/duoAB/logs/l1"), { "reactions.bob": deleteField() })));
+await t("bob no reacciona como alice", assertFails(updateDoc(doc(B, "duos/duoAB/logs/l1"), { "reactions.alice": "🔥" })));
+await t("bob no edita el título", assertFails(updateDoc(doc(B, "duos/duoAB/logs/l1"), { title: "Ensalada" })));
+await t("bob no borra el log de alice", assertFails(deleteDoc(doc(B, "duos/duoAB/logs/l1"))));
+await t("logs ordenados por miembro", assertSucceeds(getDocs(query(collection(B, "duos/duoAB/logs"), orderBy("ts", "desc"), limit(200)))));
+await t("logs de otro dúo no", assertFails(getDocs(query(collection(C, "duos/duoAB/logs"), orderBy("ts", "desc"), limit(200)))));
 
-await t("alice pokes bob", assertSucceeds(setDoc(doc(A, "duos/main/pokes/p1"), { from: "alice", to: "bob", fromName: "Osita", message: "dale", ts: 1, delivered: false })));
-await t("alice cannot poke as bob", assertFails(setDoc(doc(A, "duos/main/pokes/p2"), { from: "bob", to: "alice", message: "x", ts: 1, delivered: false })));
-await t("bob pokes query", assertSucceeds(getDocs(query(collection(B, "duos/main/pokes"), where("to", "==", "bob"), where("delivered", "==", false)))));
-await t("alice cannot mark delivered", assertFails(updateDoc(doc(A, "duos/main/pokes/p1"), { delivered: true })));
-await t("bob marks delivered", assertSucceeds(updateDoc(doc(B, "duos/main/pokes/p1"), { delivered: true })));
-await t("pokesSent increment own profile", assertSucceeds(setDoc(doc(A, "duos/main/profiles/alice"), { pokesSent: increment(1) }, { merge: true })));
+await t("alice pincha a bob", assertSucceeds(setDoc(doc(A, "duos/duoAB/pokes/p1"), { from: "alice", to: "bob", message: "dale", ts: 1, delivered: false })));
+await t("pinchazo con remitente falso", assertFails(setDoc(doc(A, "duos/duoAB/pokes/p2"), { from: "bob", to: "alice", message: "x", ts: 1, delivered: false })));
+await t("bob consulta sus pinchazos", assertSucceeds(getDocs(query(collection(B, "duos/duoAB/pokes"), where("to", "==", "bob"), where("delivered", "==", false)))));
+await t("alice no marca entregado", assertFails(updateDoc(doc(A, "duos/duoAB/pokes/p1"), { delivered: true })));
+await t("bob marca entregado", assertSucceeds(updateDoc(doc(B, "duos/duoAB/pokes/p1"), { delivered: true })));
 
-await t("member updates duo lists", assertSucceeds(updateDoc(doc(A, "duos/main"), { forfeits: ["Masajes"], "duelsWon.alice": increment(1) })));
-await t("member cannot kick partner", assertFails(updateDoc(doc(A, "duos/main"), { members: ["alice"] })));
-await t("member cannot add 3rd", assertFails(updateDoc(doc(A, "duos/main"), { members: ["alice", "bob", "carol"] })));
-await t("weeks write", assertSucceeds(setDoc(doc(B, "duos/main/weeks/2026-W41"), { forfeit: "Masajes", forfeitBy: "bob" }, { merge: true })));
-await t("carol cannot read weeks", assertFails(getDoc(doc(C, "duos/main/weeks/2026-W41"))));
-await t("aiUsage closed", assertFails(getDoc(doc(A, "duos/main/aiUsage/alice_2026-10-07"))));
-await t("other paths closed", assertFails(setDoc(doc(A, "otra/cosa"), { a: 1 })));
-await t("carol join attempt returns FULL (read denied)", assertFails(join(C, "carol")));
+await t("miembro edita listas del dúo", assertSucceeds(updateDoc(doc(A, "duos/duoAB"), { forfeits: ["Masajes"], "duelsWon.alice": increment(1) })));
+await t("miembro no echa al otro", assertFails(updateDoc(doc(A, "duos/duoAB"), { members: ["alice"] })));
+await t("semanas", assertSucceeds(setDoc(doc(B, "duos/duoAB/weeks/2026-W41"), { forfeit: "Masajes" }, { merge: true })));
+await t("aiUsage cerrado", assertFails(getDoc(doc(A, "duos/duoAB/aiUsage/alice_x"))));
+await t("otros paths cerrados", assertFails(setDoc(doc(A, "otra/cosa"), { a: 1 })));
+
+// ---------- Migración del dúo viejo (duos/main) ----------
+await env.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), "duos/main"), { members: ["eve", "frank"] });
+});
+const E = db("eve"), F = db("frank");
+await t("eve se registra", assertSucceeds(register(E, "eve", "EVE555", "Eve")));
+await t("eve se asigna su dúo viejo", assertSucceeds(updateDoc(doc(E, "users/eve"), { duoId: "main" })));
+await t("frank se registra", assertSucceeds(register(F, "frank", "FRANK6", "Frank")));
+await t("frank no se asigna un dúo ajeno", assertFails(updateDoc(doc(F, "users/frank"), { duoId: "duoAB" })));
+await t("frank se asigna su dúo viejo", assertSucceeds(updateDoc(doc(F, "users/frank"), { duoId: "main" })));
+await t("frank lee el dúo viejo", assertSucceeds(getDoc(doc(F, "duos/main"))));
 
 await env.cleanup();
 console.log(`\n${pass} ok, ${fail} fail`);

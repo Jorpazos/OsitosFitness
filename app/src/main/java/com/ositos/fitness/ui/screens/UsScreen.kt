@@ -90,7 +90,7 @@ fun UsScreen(s: DuoState, padding: PaddingValues, onOpenWrapped: () -> Unit) {
         if (partner != null) {
             item {
                 GameCard(accent = OsitoColors.Pink) {
-                    Text("Racha de pareja", style = MaterialTheme.typography.titleLarge)
+                    Text("Racha del dúo", style = MaterialTheme.typography.titleLarge)
                     Row(verticalAlignment = Alignment.Bottom) {
                         AnimatedCounter(s.coupleStreak, style = MaterialTheme.typography.displayMedium, color = OsitoColors.Pink)
                         Text(" días", style = MaterialTheme.typography.titleLarge)

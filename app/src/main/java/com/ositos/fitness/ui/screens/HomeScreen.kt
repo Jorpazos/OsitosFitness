@@ -121,7 +121,7 @@ fun HomeScreen(
             }
         }
 
-        item { SectionTitle("Vos | ${s.partner?.name ?: "Tu pareja"}") }
+        item { SectionTitle("Vos | ${s.partner?.name ?: "Tu compa"}") }
         item { SplitView(s, onPoke) }
 
         item {
@@ -264,9 +264,9 @@ private fun SplitView(s: DuoState, onPoke: () -> Unit) {
         } else {
             GameCard(Modifier.weight(1f)) {
                 Text("⏳", fontSize = 36.sp)
-                Text("Esperando a tu pareja", style = MaterialTheme.typography.titleSmall)
+                Text("Esperando a tu compa", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Pasale el APK: cuando entre con su Google se une solo al dúo.",
+                    "Ya están emparejados: aparece acá apenas termine de armar su perfil.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
