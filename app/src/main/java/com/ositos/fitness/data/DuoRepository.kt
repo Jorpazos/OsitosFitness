@@ -53,6 +53,7 @@ class DuoRepository(
     private fun logs() = duoRef.collection("logs")
     private fun weeks() = duoRef.collection("weeks")
     private fun pokes() = duoRef.collection("pokes")
+    private fun measures() = duoRef.collection("measures")
     private fun users() = db.collection("users")
     private fun pins() = db.collection("pins")
 
@@ -352,6 +353,41 @@ class DuoRepository(
             SetOptions.merge(),
         )
         batch.set(logs().document(), logMap(me, "WEIGHT", "Se pesó", "%.1f kg".format(kg), "⚖️", weightKg = kg))
+        batch.commit().await()
+    }
+
+    fun measuresFlow(): Flow<List<MeasureEntry>> = callbackFlow {
+        val reg = measures().addSnapshotListener { s, e ->
+            if (e != null) { close(e); return@addSnapshotListener }
+            trySend(s?.documents?.mapNotNull { MeasureEntry.from(it) } ?: emptyList())
+        }
+        awaitClose { reg.remove() }
+    }
+
+    /** Guarda las medidas de hoy (una por día; la última pisa a la anterior) y suma XP al día. */
+    suspend fun addMeasures(m: MeasureEntry, goalKcal: Int) {
+        val me = requireUid()
+        val day = Dates.todayKey()
+        val data = mapOf(
+            "uid" to me, "dayKey" to day,
+            "waistCm" to m.waistCm, "hipCm" to m.hipCm, "chestCm" to m.chestCm,
+            "armCm" to m.armCm, "thighCm" to m.thighCm,
+        )
+        val parts = BodyPart.entries.mapNotNull { p -> m.value(p)?.let { "${p.emoji} ${"%.1f".format(it)}" } }
+        val batch = db.batch()
+        batch.set(measures().document("${me}_$day"), data)
+        batch.set(dayRef(me, day), dayBase(me, day, goalKcal) + mapOf("measured" to true), SetOptions.merge())
+        batch.set(
+            profiles().document(me),
+            mapOf(
+                "measures" to mapOf(
+                    "waistCm" to m.waistCm, "hipCm" to m.hipCm, "chestCm" to m.chestCm,
+                    "armCm" to m.armCm, "thighCm" to m.thighCm,
+                ),
+            ),
+            SetOptions.merge(),
+        )
+        batch.set(logs().document(), logMap(me, "MEASURE", "Se tomó las medidas", parts.joinToString("  "), "📏"))
         batch.commit().await()
     }
 

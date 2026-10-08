@@ -11,6 +11,8 @@ import com.ositos.fitness.domain.AchievementContext
 import com.ositos.fitness.domain.DayStats
 import com.ositos.fitness.domain.Dates
 import com.ositos.fitness.domain.Eta
+import com.ositos.fitness.domain.Games
+import com.ositos.fitness.data.MeasureEntry
 import com.ositos.fitness.domain.GoalType
 import com.ositos.fitness.domain.HealthCalculator
 import com.ositos.fitness.domain.Level
@@ -37,11 +39,15 @@ data class PersonSummary(
     val eta: Eta?,
     val kgProgress: Double,
     val days: List<DayStats>,
+    val measures: List<MeasureEntry> = emptyList(),
+    /** Días con las 3 misiones completas y duelos relámpago ganados (para logros). */
+    val questDays: Int = 0,
+    val flashWins: Int = 0,
 ) {
     val name get() = profile.nickname.ifBlank { "Osito" }
     val budget get() = today.goalKcal + today.kcalOut
     val remaining get() = budget - today.kcalIn
-    val goalType get() = HealthCalculator.goalType(profile.weightKg, profile.targetWeightKg)
+    val goalType get() = profile.goal
 }
 
 data class CoopProgress(val type: CoopType, val target: Int, val current: Int) {
@@ -63,6 +69,9 @@ data class DuoState(
     val bestCoupleStreak: Int = 0,
     val coupleAtRisk: Boolean = false,
     val pokesSentToday: Int = 0,
+    val bingo: Games.Bingo? = null,
+    val osera: Games.Osera? = null,
+    val bingoLinesEver: Int = 0,
 ) {
     val hasPartner get() = partner != null
     fun nameOf(uid: String?): String = when (uid) {
@@ -83,22 +92,28 @@ object Summaries {
         profile: Profile,
         allDays: List<DayStats>,
         allWeights: List<WeightEntry>,
+        partnerUid: String?,
+        allMeasures: List<MeasureEntry> = emptyList(),
         today: LocalDate = LocalDate.now(),
     ): PersonSummary {
         val todayKey = Dates.key(today)
         val todayEpoch = today.toEpochDay()
         val days = allDays.filter { it.uid == profile.uid }.sortedBy { it.dayKey }
+        val partnerDays = allDays.filter { it.uid == partnerUid }.associateBy { it.dayKey }
         val todayStats = days.firstOrNull { it.dayKey == todayKey }
             ?: DayStats(profile.uid, todayKey, goalKcal = profile.goalKcal)
-        val totalXp = days.sumOf { Xp.forDay(it) }
+        val totalXp = days.sumOf { Games.dayXp(it, partnerDays[it.dayKey], today) }
         val doneDays = days.filter { Xp.dayDone(it) }.map { it.epochDay }.toSet()
         val weekKeys = Dates.weekDays(today).map { Dates.key(it) }.toSet()
-        val weekXp = days.filter { it.dayKey in weekKeys }.sumOf { Xp.forDay(it) }
+        val weekXp = days.filter { it.dayKey in weekKeys }.sumOf { Games.dayXp(it, partnerDays[it.dayKey], today) }
+        val flashWins = days.count {
+            it.epochDay < todayEpoch && Games.flashWinner(it.dayKey, it, partnerDays[it.dayKey]) == profile.uid
+        }
         val weights = allWeights.filter { it.uid == profile.uid }
             .map { WeightPoint(Dates.epochDay(it.dayKey), it.kg) }
             .sortedBy { it.epochDay }
         val current = weights.lastOrNull()?.kg ?: profile.weightKg
-        val kgProgress = when (HealthCalculator.goalType(profile.startWeightKg, profile.targetWeightKg)) {
+        val kgProgress = when (profile.goal) {
             GoalType.LOSE -> profile.startWeightKg - current
             GoalType.GAIN -> current - profile.startWeightKg
             GoalType.MAINTAIN -> 0.0
@@ -118,6 +133,9 @@ object Summaries {
             eta = HealthCalculator.eta(weights, current, profile.targetWeightKg, todayEpoch),
             kgProgress = kgProgress,
             days = days,
+            measures = allMeasures.filter { it.uid == profile.uid }.sortedBy { it.dayKey },
+            questDays = days.count { Games.allQuestsDone(it) },
+            flashWins = flashWins,
         )
     }
 
@@ -133,9 +151,27 @@ object Summaries {
         return CoopProgress(week.coopType, week.coopTarget, current)
     }
 
-    fun weekXp(uid: String, days: List<DayStats>, date: LocalDate): Int {
+    /** XP de la semana (con bonus de misiones y duelo relámpago). [days] = días de los dos. */
+    fun weekXp(uid: String, days: List<DayStats>, date: LocalDate, today: LocalDate = LocalDate.now()): Int {
         val keys = Dates.weekDays(date).map { Dates.key(it) }.toSet()
-        return days.filter { it.uid == uid && it.dayKey in keys }.sumOf { Xp.forDay(it) }
+        val partner = days.filter { it.uid != uid }.associateBy { it.dayKey }
+        return days.filter { it.uid == uid && it.dayKey in keys }.sumOf { Games.dayXp(it, partner[it.dayKey], today) }
+    }
+
+    /** Puntos de equipo: combos diarios + bingos semanales + desafíos cooperativos cumplidos. */
+    fun teamPoints(a: List<DayStats>, b: List<DayStats>, weeks: List<Week>, currentCoopDone: Boolean, today: LocalDate): Pair<Int, Int> {
+        val combos = Games.comboDays(a, b) * Games.COMBO_POINTS
+        val weekStarts = (a + b).map { Dates.weekStart(LocalDate.parse(it.dayKey)) }.toSet()
+        var bingoLines = 0
+        val bingo = weekStarts.sumOf { start ->
+            val bg = Games.bingo(start, a, b)
+            bingoLines += bg.lines
+            bg.points
+        }
+        val currentKey = Dates.weekKey(today)
+        val coop = weeks.count { it.closed && it.coopAchieved && it.key != currentKey } * Games.COOP_WEEK_POINTS +
+            (if (currentCoopDone) Games.COOP_WEEK_POINTS else 0)
+        return (combos + bingo + coop) to bingoLines
     }
 
     fun achievementContext(p: PersonSummary, s: DuoState, duo: Duo?): AchievementContext = AchievementContext(
@@ -152,6 +188,11 @@ object Summaries {
         level = p.level.number,
         coopChallengesDone = duo?.coopDone ?: 0,
         weighIns = p.weights.size,
+        measuresCount = p.measures.size,
+        questDays = p.questDays,
+        flashWins = p.flashWins,
+        bingoLines = s.bingoLinesEver,
+        oseraLevel = s.osera?.level ?: 1,
     )
 
     fun build(
@@ -162,18 +203,23 @@ object Summaries {
         weights: List<WeightEntry>,
         logs: List<LogEntry>,
         weeks: List<Week>,
+        measures: List<MeasureEntry> = emptyList(),
         today: LocalDate = LocalDate.now(),
     ): DuoState {
         val myProfile = profiles[myUid]
         val partnerUid = duo?.members?.firstOrNull { it != myUid }
         val partnerProfile = partnerUid?.let { profiles[it] }?.takeIf { it.onboarded }
-        val me = myProfile?.let { person(it, days, weights, today) }
-        val partner = partnerProfile?.let { person(it, days, weights, today) }
+        val me = myProfile?.let { person(it, days, weights, partnerUid, measures, today) }
+        val partner = partnerProfile?.let { person(it, days, weights, myUid, measures, today) }
         val weekKey = Dates.weekKey(today)
         val currentWeek = weeks.firstOrNull { it.key == weekKey } ?: Week(weekKey)
         val todayEpoch = today.toEpochDay()
         val coupleDays = if (me != null && partner != null) Streaks.coupleDays(me.doneDays, partner.doneDays) else emptySet()
         val todayKey = Dates.key(today)
+        val coopNow = if (partner != null) coop(currentWeek, days, today) else null
+        val team = if (me != null && partner != null) {
+            teamPoints(me.days, partner.days, weeks, coopNow?.done == true, today)
+        } else null
         return DuoState(
             loading = false,
             myUid = myUid,
@@ -183,7 +229,10 @@ object Summaries {
             logs = logs,
             weeks = weeks,
             currentWeek = currentWeek,
-            coop = if (partner != null) coop(currentWeek, days, today) else null,
+            coop = coopNow,
+            bingo = if (me != null && partner != null) Games.bingo(Dates.weekStart(today), me.days, partner.days) else null,
+            osera = team?.let { Games.osera(it.first) },
+            bingoLinesEver = team?.second ?: 0,
             coupleStreak = Streaks.current(coupleDays, todayEpoch),
             bestCoupleStreak = Streaks.best(coupleDays),
             coupleAtRisk = me != null && partner != null && Streaks.coupleAtRisk(me.doneDays, partner.doneDays, todayEpoch),

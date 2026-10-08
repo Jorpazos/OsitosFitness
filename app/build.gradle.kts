@@ -7,6 +7,10 @@ plugins {
 
 val aiBackend = (project.findProperty("ositos.aiBackend") as String?) ?: "gemini"
 val workerUrl = (project.findProperty("ositos.workerUrl") as String?) ?: ""
+// En GitHub Actions cada compilación tiene un número que siempre sube: lo usamos como versión,
+// así la app puede saber si hay una más nueva publicada.
+val buildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+val updateRepo = (project.findProperty("ositos.updateRepo") as String?) ?: "Jorpazos/OsitosFitness"
 
 android {
     namespace = "com.ositos.fitness"
@@ -16,13 +20,14 @@ android {
         applicationId = "com.ositos.fitness"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = buildNumber
+        versionName = "1.$buildNumber"
         vectorDrawables { useSupportLibrary = true }
 
         buildConfigField("String", "AI_BACKEND", "\"$aiBackend\"")
         buildConfigField("String", "WORKER_URL", "\"$workerUrl\"")
         buildConfigField("String", "FUNCTIONS_REGION", "\"southamerica-east1\"")
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
     }
 
     signingConfigs {

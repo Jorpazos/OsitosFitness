@@ -84,6 +84,14 @@ fun GameScreen(
             }
         }
 
+        item { QuestsCard(s) }
+
+        if (s.partner != null) {
+            item { FlashDuelCard(s) }
+            item { OseraCard(s) }
+            item { BingoCard(s) }
+        }
+
         val partner = s.partner
         if (partner != null) {
             item {

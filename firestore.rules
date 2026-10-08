@@ -143,6 +143,13 @@ service cloud.firestore {
         allow delete: if isMember() && ownsId(weightId);
       }
 
+      match /measures/{measureId} {
+        allow read: if isMember();
+        allow create, update: if isMember() && ownsId(measureId)
+          && request.resource.data.uid == request.auth.uid;
+        allow delete: if isMember() && ownsId(measureId);
+      }
+
       match /logs/{logId} {
         allow read: if isMember();
         allow create: if isMember() && request.resource.data.uid == request.auth.uid;

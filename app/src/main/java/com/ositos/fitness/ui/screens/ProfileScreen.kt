@@ -36,6 +36,7 @@ import com.ositos.fitness.ui.components.Avatar
 import com.ositos.fitness.ui.components.BouncyButton
 import com.ositos.fitness.ui.components.FillBar
 import com.ositos.fitness.ui.components.GameCard
+import com.ositos.fitness.ui.components.LocalCheckForUpdates
 import com.ositos.fitness.ui.components.SectionTitle
 import com.ositos.fitness.ui.theme.OsitoColors
 import java.time.Instant
@@ -55,6 +56,7 @@ fun ProfileScreen(
     onEditPokeMessages: () -> Unit,
     onEditForfeits: () -> Unit,
     onSignOut: () -> Unit,
+    onOpenMeasures: () -> Unit = {},
 ) {
     val me = s.me ?: return
     val p = me.profile
@@ -114,6 +116,16 @@ fun ProfileScreen(
                 }
             }
         }
+        item {
+            BouncyButton(
+                "Mis medidas y cómo tomarlas",
+                onOpenMeasures,
+                Modifier.fillMaxWidth(),
+                color = OsitoColors.Yellow,
+                contentColor = Color(0xFF3A2600),
+                emoji = "📏",
+            )
+        }
         item { SectionTitle("Pinchazos") }
         item {
             GameCard {
@@ -147,6 +159,8 @@ fun ProfileScreen(
         }
         item {
             Column {
+                val checkUpdates = LocalCheckForUpdates.current
+                TextButton(onClick = checkUpdates) { Text("🆕 Buscar actualizaciones") }
                 TextButton(onClick = { confirmSignOut = true }) { Text("Cerrar sesión") }
                 Text(
                     "Ositos Fitness ${BuildConfig.VERSION_NAME} · IA: ${BuildConfig.AI_BACKEND}",

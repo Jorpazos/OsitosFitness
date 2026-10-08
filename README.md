@@ -13,12 +13,17 @@ Sin culpa, con mucho XP.
 
 | | |
 |---|---|
+| **Objetivos** | Bajar de peso 🔥, ganar músculo 💪 o mantener/tonificar ⚖️: cambian la meta de kcal, la proteína sugerida y los avisos |
+| **Dúos por PIN** | Cada persona tiene su PIN; poniendo el del otro arman su dúo (pareja, amigas, hermanos…). Varios dúos, aislados entre sí |
+| **Medidas** | Panza, cadera, pecho, brazo y muslo con guía ilustrada (osito con cinta métrica) de cómo y dónde medir, historial y avance |
+| **Actualizaciones** | Cada push a `main` publica una versión en GitHub Releases; la app la detecta y se actualiza sola (repo público) |
 | **Perfil y cálculos** | IMC con barra de rangos, rango saludable (IMC 18,5–24,9), peso de referencia (IMC 22), metabolismo basal (Mifflin-St Jeor), gasto diario (TDEE), meta de kcal (déficit máx. 500, mantenimiento o superávit), cintura/cadera, fecha estimada según la tendencia real de 14 días |
 | **Límites de seguridad** | Nunca < 1200 kcal (mujer) / 1500 (hombre) · no deja poner objetivos con IMC < 18,5 · aviso amable si bajás > 1 kg/semana sostenido |
 | **Comidas** | Buscador con ~70 comidas argentinas (milanesa, empanadas, mate, medialunas, asado, fainá, chocotorta…), carga manual, y **foto con IA** (Claude Sonnet 5.5) editable antes de guardar. Límite 20 fotos/día |
 | **Ejercicio** | Kcal directas del reloj, o actividad + minutos + intensidad con METs (18 actividades) |
 | **Inicio** | Anillo animado de kcal (el ejercicio suma margen), agua en 1 toque, gráfico de peso con media móvil de 7 días, vista dividida **Vos \| Tu pareja** |
 | **Juego** | XP por hábitos, 12 niveles, racha individual y **racha de pareja**, duelo semanal con **prenda**, **pinchazos** con push (máx. 3/día, silenciables), alertas automáticas a la noche, 19 logros con animación Lottie, desafíos cooperativos, reacciones 👏🔥💪, resumen semanal tipo **wrapped** |
+| **Juegos nuevos** | Competitivos: 🗒️ misiones del día y ⚡ duelo relámpago diario. Cooperativos: 🎱 bingo semanal del dúo, combo del dúo y 🏠 **La Osera**, el nivel compartido que suben juntos |
 | **Para 2** | Apodo, avatar y color propios en todos los mensajes, historial compartido tipo chat, pantalla **Nosotros** con estadísticas conjuntas |
 | **Diseño** | Material 3, modo oscuro por defecto, tipografía redondeada (Nunito), confeti, contadores que suben, barras que se llenan, vibración. Registrar algo: máx. 3 toques |
 
@@ -162,6 +167,21 @@ Para actualizar: descargá el APK nuevo e instalalo encima (los datos están en 
 fijo permite actualizar sin desinstalar).
 
 ---
+
+## Actualizaciones automáticas
+
+1. Cada push a la rama `main` compila el APK y publica un **Release** `vN` en GitHub.
+2. Al abrir la app (como mucho cada 6 h) o desde **Perfil → Buscar actualizaciones**, la app consulta
+   el último release, baja el APK y abre el instalador de Android (se instala encima, sin perder datos).
+3. La primera vez Android pide permitir "Instalar apps de esta fuente" para Ositos Fitness.
+
+Requisitos: el repo tiene que ser **público** (los releases de repos privados piden login) y la versión
+instalada tiene que ser una que ya traiga el actualizador (la primera se instala a mano).
+
+⚠️ Si el repo es público, cualquiera ve el código, el `google-services.json` y el `debug.keystore`.
+Los datos siguen protegidos por las reglas de Firestore, pero alguien podría compilar la app y usar
+la cuota gratuita de IA de tu proyecto. Para bloquearlo, activá **App Check** en Firebase y/o
+limitá los mails en `emailAllowed()` de `firestore.rules`.
 
 ## Preguntas y problemas comunes
 

@@ -86,7 +86,7 @@ import com.ositos.fitness.ui.theme.OsitoColors
 import java.io.File
 import kotlin.math.roundToInt
 
-enum class Sheet { MENU, MEAL, PHOTO, EXERCISE, WEIGHT }
+enum class Sheet { MENU, MEAL, PHOTO, EXERCISE, WEIGHT, MEASURES }
 
 /** Selector principal: 1 toque para abrir, 1 para elegir tipo, 1 para guardar. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -139,6 +139,23 @@ private fun MenuSheet(onSelect: (Sheet) -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     Text(o.third, style = MaterialTheme.typography.labelLarge, color = color)
                 }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.large)
+                .background(OsitoColors.Yellow.copy(alpha = 0.16f))
+                .clickable { Haptics.tick(ctx); onSelect(Sheet.MEASURES) }
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("📏", fontSize = 26.sp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Medidas", style = MaterialTheme.typography.labelLarge, color = OsitoColors.Orange)
+                Text("Panza, cadera, brazos, piernas… y cómo medirte", style = MaterialTheme.typography.bodySmall)
             }
         }
         Spacer(Modifier.height(12.dp))

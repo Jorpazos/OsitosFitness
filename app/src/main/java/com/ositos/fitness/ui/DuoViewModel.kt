@@ -77,8 +77,9 @@ class DuoViewModel(
                 repo.weightsFlow().onStart { emit(emptyList()) },
                 repo.logsFlow().onStart { emit(emptyList()) },
                 repo.allWeeksFlow().onStart { emit(emptyList()) },
-            ) { (duo, profiles, days), weights, logs, weeks ->
-                Summaries.build(myUid, duo, profiles, days, weights, logs, weeks)
+                repo.measuresFlow().onStart { emit(emptyList()) },
+            ) { (duo, profiles, days), weights, logs, weeks, measures ->
+                Summaries.build(myUid, duo, profiles, days, weights, logs, weeks, measures)
             }
                 .catch { _events.tryEmit(UiEvent.Toast("Error de conexión: ${it.message}")) }
                 .collect { s ->
@@ -140,8 +141,8 @@ class DuoViewModel(
             if (!hadActivity) continue
             closingWeeks += key
             val xp = mapOf(
-                me.profile.uid to Summaries.weekXp(me.profile.uid, me.days, date),
-                partner.profile.uid to Summaries.weekXp(partner.profile.uid, partner.days, date),
+                me.profile.uid to Summaries.weekXp(me.profile.uid, me.days + partner.days, date),
+                partner.profile.uid to Summaries.weekXp(partner.profile.uid, me.days + partner.days, date),
             )
             val week = s.weeks.firstOrNull { it.key == key } ?: Week(key)
             val coopDone = Summaries.coop(week, me.days + partner.days, date).done
@@ -182,9 +183,14 @@ class DuoViewModel(
         val p = me.profile
         val bmr = HealthCalculator.bmr(p.sex, kg, p.heightCm, p.age)
         val tdee = HealthCalculator.tdee(bmr, p.activity)
-        val newGoal = HealthCalculator.dailyGoalKcal(p.sex, tdee, HealthCalculator.goalType(kg, p.targetWeightKg))
+        val newGoal = HealthCalculator.dailyGoalKcal(p.sex, tdee, p.goal)
         val xp = if (me.today.weighed) 0 else Xp.WEIGH_IN
         launchAction(xp) { repo.addWeight(kg, newGoal) }
+    }
+
+    fun addMeasures(m: com.ositos.fitness.data.MeasureEntry) {
+        val xp = if (_state.value.me?.today?.measured == true) 0 else com.ositos.fitness.domain.Xp.MEASURED
+        launchAction(xp, success = "📏 Medidas guardadas") { repo.addMeasures(m, goal) }
     }
 
     fun addWater(delta: Int = 1) {
@@ -246,7 +252,7 @@ class DuoViewModel(
     fun saveProfile(p: Profile) {
         val bmr = HealthCalculator.bmr(p.sex, p.weightKg, p.heightCm, p.age)
         val tdee = HealthCalculator.tdee(bmr, p.activity)
-        val goalKcal = HealthCalculator.dailyGoalKcal(p.sex, tdee, HealthCalculator.goalType(p.weightKg, p.targetWeightKg))
+        val goalKcal = HealthCalculator.dailyGoalKcal(p.sex, tdee, p.goal)
         launchAction(success = "Perfil actualizado ✨") { repo.saveProfile(p.copy(goalKcal = goalKcal)) }
     }
 

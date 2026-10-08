@@ -4,6 +4,8 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.ositos.fitness.domain.ActivityLevel
 import com.ositos.fitness.domain.DayStats
 import com.ositos.fitness.domain.Defaults
+import com.ositos.fitness.domain.GoalType
+import com.ositos.fitness.domain.HealthCalculator
 import com.ositos.fitness.domain.Measures
 import com.ositos.fitness.domain.Sex
 
@@ -25,7 +27,12 @@ data class Profile(
     val pokesSent: Int = 0,
     val achievements: Map<String, Long> = emptyMap(),
     val onboarded: Boolean = false,
+    /** Objetivo elegido. null en perfiles viejos: se deduce del peso objetivo. */
+    val objective: GoalType? = null,
 ) {
+    /** El objetivo efectivo (elegido, o deducido de los pesos en perfiles viejos). */
+    val goal: GoalType get() = objective ?: HealthCalculator.goalType(startWeightKg, targetWeightKg)
+
     fun toMap(): Map<String, Any?> = mapOf(
         "uid" to uid,
         "nickname" to nickname,
@@ -47,6 +54,7 @@ data class Profile(
         ),
         "goalKcal" to goalKcal,
         "onboarded" to onboarded,
+        "objective" to objective?.name,
     )
 
     companion object {
@@ -77,6 +85,7 @@ data class Profile(
                 pokesSent = d.getLong("pokesSent")?.toInt() ?: 0,
                 achievements = ach,
                 onboarded = d.getBoolean("onboarded") ?: false,
+                objective = d.getString("objective")?.let { runCatching { GoalType.valueOf(it) }.getOrNull() },
             )
         }
     }
@@ -107,7 +116,7 @@ data class Duo(
     }
 }
 
-enum class LogType { MEAL, EXERCISE, WEIGHT, POKE, ACHIEVEMENT, DUEL }
+enum class LogType { MEAL, EXERCISE, WEIGHT, POKE, ACHIEVEMENT, DUEL, MEASURE }
 
 data class LogEntry(
     val id: String,
@@ -155,10 +164,87 @@ fun dayStatsFrom(d: DocumentSnapshot): DayStats? {
         kcalIn = d.getLong("kcalIn")?.toInt() ?: 0,
         kcalOut = d.getLong("kcalOut")?.toInt() ?: 0,
         goalKcal = d.getLong("goalKcal")?.toInt() ?: 2000,
+        measured = d.getBoolean("measured") ?: false,
     )
 }
 
 data class WeightEntry(val uid: String, val dayKey: String, val kg: Double)
+
+/** Medidas corporales de un día (cm). Cualquier campo puede faltar. */
+data class MeasureEntry(
+    val uid: String,
+    val dayKey: String,
+    val waistCm: Double? = null,
+    val hipCm: Double? = null,
+    val chestCm: Double? = null,
+    val armCm: Double? = null,
+    val thighCm: Double? = null,
+) {
+    fun value(part: BodyPart): Double? = when (part) {
+        BodyPart.WAIST -> waistCm
+        BodyPart.HIP -> hipCm
+        BodyPart.CHEST -> chestCm
+        BodyPart.ARM -> armCm
+        BodyPart.THIGH -> thighCm
+    }
+
+    companion object {
+        fun from(d: DocumentSnapshot): MeasureEntry? {
+            if (!d.exists()) return null
+            fun v(k: String) = d.getDouble(k)
+            return MeasureEntry(
+                uid = d.getString("uid") ?: return null,
+                dayKey = d.getString("dayKey") ?: return null,
+                waistCm = v("waistCm"), hipCm = v("hipCm"), chestCm = v("chestCm"),
+                armCm = v("armCm"), thighCm = v("thighCm"),
+            )
+        }
+    }
+}
+
+/** Partes del cuerpo que se miden, con la explicación de cómo hacerlo. */
+enum class BodyPart(val label: String, val emoji: String, val where: String, val steps: List<String>) {
+    WAIST(
+        "Cintura (panza)", "🎯", "A la altura del ombligo",
+        listOf(
+            "Parate derecho, con los pies juntos y la panza relajada (¡sin meterla!).",
+            "Pasá la cinta por la altura del ombligo, paralela al piso.",
+            "Soltá el aire normal y medí al final de la exhalación.",
+        ),
+    ),
+    HIP(
+        "Cadera", "🍑", "En la parte más ancha de la cola",
+        listOf(
+            "Pies juntos, de costado frente a un espejo.",
+            "Buscá la parte más saliente de la cola y pasá la cinta ahí.",
+            "Que la cinta quede derecha (paralela al piso) por delante y por detrás.",
+        ),
+    ),
+    CHEST(
+        "Pecho", "🫁", "A la altura de las tetillas",
+        listOf(
+            "Brazos relajados a los costados.",
+            "Pasá la cinta por debajo de las axilas, a la altura de las tetillas.",
+            "Medí con el aire afuera, sin inflar el pecho.",
+        ),
+    ),
+    ARM(
+        "Brazo", "💪", "Mitad entre hombro y codo",
+        listOf(
+            "Dejá el brazo relajado, colgando al costado.",
+            "Medí en la mitad entre el hombro y el codo (la parte más gruesa).",
+            "Siempre el mismo brazo (por ejemplo, el derecho).",
+        ),
+    ),
+    THIGH(
+        "Pierna (muslo)", "🦵", "Mitad entre cadera y rodilla",
+        listOf(
+            "De pie, con el peso repartido en las dos piernas.",
+            "Medí en la parte más gruesa del muslo, unos 15–20 cm arriba de la rodilla.",
+            "Siempre la misma pierna y a la misma altura.",
+        ),
+    ),
+}
 
 enum class CoopType(val label: String, val unit: String, val emoji: String, val defaultTarget: Int) {
     BURN("Quemar kcal entre los dos", "kcal", "🔥", 3000),

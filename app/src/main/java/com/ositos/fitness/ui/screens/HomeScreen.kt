@@ -121,6 +121,8 @@ fun HomeScreen(
             }
         }
 
+        item { QuestsCard(s, compact = true) }
+
         item { SectionTitle("Vos | ${s.partner?.name ?: "Tu compa"}") }
         item { SplitView(s, onPoke) }
 

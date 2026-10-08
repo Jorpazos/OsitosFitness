@@ -40,6 +40,7 @@ import com.ositos.fitness.ui.MainScaffold
 import com.ositos.fitness.ui.Session
 import com.ositos.fitness.ui.SessionViewModel
 import com.ositos.fitness.ui.components.BouncyButton
+import com.ositos.fitness.ui.components.UpdatePrompt
 import com.ositos.fitness.ui.screens.OnboardingFlow
 import com.ositos.fitness.ui.screens.PairScreen
 import com.ositos.fitness.ui.screens.ThemeMode
@@ -69,6 +70,7 @@ class MainActivity : ComponentActivity() {
             }
             OsitosTheme(dark = dark) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                  UpdatePrompt(container.updater) {
                     val sessionVm: SessionViewModel = viewModel(
                         factory = viewModelFactory {
                             initializer { SessionViewModel(container.repo, app.firebasePlaceholder) }
@@ -126,6 +128,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                  }
                 }
             }
         }

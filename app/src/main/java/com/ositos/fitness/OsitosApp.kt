@@ -5,6 +5,7 @@ import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.ositos.fitness.data.AiRepository
 import com.ositos.fitness.data.DuoRepository
+import com.ositos.fitness.data.Updater
 import com.ositos.fitness.notifications.DuoWorker
 import com.ositos.fitness.notifications.Notifications
 
@@ -12,6 +13,7 @@ import com.ositos.fitness.notifications.Notifications
 class AppContainer(context: Context) {
     val repo by lazy { DuoRepository() }
     val ai by lazy { AiRepository(context) }
+    val updater by lazy { Updater(context) }
     val prefs = context.getSharedPreferences("ositos", Context.MODE_PRIVATE)
 }
 

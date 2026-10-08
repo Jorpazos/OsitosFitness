@@ -68,6 +68,7 @@ import com.ositos.fitness.R
 import com.ositos.fitness.data.Profile
 import com.ositos.fitness.domain.ActivityLevel
 import com.ositos.fitness.domain.Defaults
+import com.ositos.fitness.domain.GoalType
 import com.ositos.fitness.domain.HealthCalculator
 import com.ositos.fitness.domain.Measures
 import com.ositos.fitness.domain.Sex
@@ -301,17 +302,22 @@ fun BodyStep(profile: Profile, onChange: (Profile) -> Unit, onNext: (Profile) ->
     val heightN = height.toDoubleOrNullLocale()
     val weightN = weight.toDoubleOrNullLocale()
     val targetN = target.toDoubleOrNullLocale()
+    val goal = profile.objective ?: profile.goal
+    val maintain = goal == GoalType.MAINTAIN
+    val effectiveTarget = if (maintain) weightN else targetN
     val valid = ageN != null && ageN in 14..100 && heightN != null && heightN in 120.0..230.0 &&
-        weightN != null && weightN in 30.0..300.0 && targetN != null && targetN in 30.0..300.0
-    val targetOk = valid && HealthCalculator.isTargetAllowed(targetN!!, heightN!!)
+        weightN != null && weightN in 30.0..300.0 && effectiveTarget != null && effectiveTarget in 30.0..300.0
+    val targetProblem = if (valid) HealthCalculator.targetProblem(goal, weightN!!, effectiveTarget!!, heightN!!) else null
+    val targetOk = valid && targetProblem == null
 
     fun build(): Profile? {
         if (!valid || !targetOk) return null
         val p = profile.copy(
+            objective = goal,
             age = ageN!!,
             heightCm = heightN!!,
             weightKg = weightN!!,
-            targetWeightKg = targetN!!,
+            targetWeightKg = effectiveTarget!!,
             measures = Measures(
                 waist.toDoubleOrNullLocale(), hip.toDoubleOrNullLocale(), chest.toDoubleOrNullLocale(),
                 arm.toDoubleOrNullLocale(), thigh.toDoubleOrNullLocale(),
@@ -319,7 +325,7 @@ fun BodyStep(profile: Profile, onChange: (Profile) -> Unit, onNext: (Profile) ->
         )
         val bmr = HealthCalculator.bmr(p.sex, p.weightKg, p.heightCm, p.age)
         val tdee = HealthCalculator.tdee(bmr, p.activity)
-        return p.copy(goalKcal = HealthCalculator.dailyGoalKcal(p.sex, tdee, HealthCalculator.goalType(p.weightKg, p.targetWeightKg)))
+        return p.copy(goalKcal = HealthCalculator.dailyGoalKcal(p.sex, tdee, p.goal))
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -331,6 +337,33 @@ fun BodyStep(profile: Profile, onChange: (Profile) -> Unit, onNext: (Profile) ->
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(16.dp))
+        Text("¿Qué querés lograr?", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GoalType.entries.forEach { g ->
+                val sel = goal == g
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(if (sel) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
+                        .then(if (sel) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium) else Modifier)
+                        .clickable { onChange(profile.copy(objective = g)) }
+                        .padding(vertical = 12.dp, horizontal = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(g.emoji, fontSize = 26.sp)
+                    Text(g.label, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+                }
+            }
+        }
+        Text(
+            goal.detail,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Spacer(Modifier.height(14.dp))
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             Sex.entries.forEachIndexed { i, s ->
                 SegmentedButton(
@@ -348,15 +381,17 @@ fun BodyStep(profile: Profile, onChange: (Profile) -> Unit, onNext: (Profile) ->
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             NumField("Peso actual (kg)", weight, { weight = it }, Modifier.weight(1f))
-            NumField(
-                "Peso objetivo (kg)", target, { target = it }, Modifier.weight(1f),
-                isError = valid && !targetOk,
-            )
+            if (!maintain) {
+                NumField(
+                    if (goal == GoalType.GAIN) "Peso meta (kg)" else "Peso objetivo (kg)", target, { target = it },
+                    Modifier.weight(1f),
+                    isError = valid && !targetOk,
+                )
+            }
         }
-        if (valid && !targetOk) {
+        if (targetProblem != null) {
             Text(
-                "Ese objetivo queda con IMC menor a 18,5. El mínimo saludable para tu altura es " +
-                    "${HealthCalculator.minTargetWeight(heightN!!).fmt()} kg 💚",
+                targetProblem,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 4.dp),

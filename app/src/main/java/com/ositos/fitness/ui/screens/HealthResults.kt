@@ -35,7 +35,7 @@ fun HealthResults(p: Profile, eta: Eta? = null) {
     val ref = HealthCalculator.referenceWeight(p.heightCm)
     val bmr = HealthCalculator.bmr(p.sex, p.weightKg, p.heightCm, p.age)
     val tdee = HealthCalculator.tdee(bmr, p.activity)
-    val goalType = HealthCalculator.goalType(p.weightKg, p.targetWeightKg)
+    val goalType = p.goal
     val goal = HealthCalculator.dailyGoalKcal(p.sex, tdee, goalType)
     val floorHit = goal == HealthCalculator.minKcal(p.sex) && goalType == GoalType.LOSE &&
         (tdee - HealthCalculator.MAX_DEFICIT) < goal
@@ -65,10 +65,16 @@ fun HealthResults(p: Profile, eta: Eta? = null) {
         }
         Text(
             when (goalType) {
-                GoalType.LOSE -> "Objetivo: bajar a ${p.targetWeightKg.fmt1()} kg con déficit moderado (≈0,5 kg/semana)."
-                GoalType.GAIN -> "Objetivo: subir a ${p.targetWeightKg.fmt1()} kg con superávit leve."
-                GoalType.MAINTAIN -> "Objetivo: mantenerte. ¡Ya estás donde querías! 🎉"
+                GoalType.LOSE -> "🔥 Objetivo: bajar a ${p.targetWeightKg.fmt1()} kg con déficit moderado (≈0,5 kg/semana)."
+                GoalType.GAIN -> "💪 Objetivo: ganar músculo hasta ${p.targetWeightKg.fmt1()} kg con superávit leve " +
+                    "(≈0,25 kg/semana). Clave: entrenar fuerza 3–4 veces por semana."
+                GoalType.MAINTAIN -> "⚖️ Objetivo: mantener tu peso y tonificar. Comé lo que gastás y sumá fuerza y movimiento."
             },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        val protein = HealthCalculator.proteinRange(goalType, p.weightKg)
+        Text(
+            "🥚 Proteína sugerida: ${protein.first}–${protein.last} g por día (repartida en las comidas).",
             style = MaterialTheme.typography.bodyMedium,
         )
         if (floorHit) {
@@ -109,6 +115,17 @@ fun EtaInfo(eta: Eta, p: Profile) {
             },
             style = MaterialTheme.typography.bodyMedium,
         )
+        if (eta.tooFastGain && p.goal == GoalType.GAIN) {
+            GameCard(accent = OsitoColors.Warn, modifier = Modifier.padding(top = 4.dp)) {
+                Text("🐻 Tranqui con la subida", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Estás subiendo más de 0,5 kg por semana. Para que sea músculo y no grasa, " +
+                        "conviene ir más despacio (≈0,25 kg/semana) y priorizar el entrenamiento de fuerza.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
         if (eta.tooFastWarning) {
             GameCard(accent = OsitoColors.Warn, modifier = Modifier.padding(top = 4.dp)) {
                 Text("🐢 ¡Despacito!", style = MaterialTheme.typography.titleMedium)

@@ -16,6 +16,7 @@ data class DayStats(
     val kcalIn: Int = 0,
     val kcalOut: Int = 0,
     val goalKcal: Int = 2000,
+    val measured: Boolean = false,
 ) {
     val epochDay: Long get() = Dates.epochDay(dayKey)
 }
@@ -29,6 +30,7 @@ object Xp {
     const val PER_WATER = 2
     const val MAX_WATER = 8
     const val GOAL_MET = 30
+    const val MEASURED = 20
     const val DAY_DONE_MIN_XP = 40
 
     /** La meta de kcal se cumple si registró al menos 2 comidas y quedó en rango (el ejercicio suma margen). */
@@ -41,7 +43,8 @@ object Xp {
             minOf(d.exercises, MAX_EXERCISES) * PER_EXERCISE +
             (if (d.weighed) WEIGH_IN else 0) +
             minOf(d.water, MAX_WATER) * PER_WATER +
-            (if (goalMet(d)) GOAL_MET else 0)
+            (if (goalMet(d)) GOAL_MET else 0) +
+            (if (d.measured) MEASURED else 0)
 
     /** "Día cumplido": registró al menos una comida y juntó 40 XP. */
     fun dayDone(d: DayStats): Boolean = d.meals >= 1 && forDay(d) >= DAY_DONE_MIN_XP
@@ -52,6 +55,9 @@ object Xp {
         "⚖️ Pesarte" to "+$WEIGH_IN XP (1 por día)",
         "💧 Tomar un vaso de agua" to "+$PER_WATER XP (hasta $MAX_WATER por día)",
         "🎯 Cumplir la meta de kcal" to "+$GOAL_MET XP",
+        "📏 Tomarte las medidas" to "+$MEASURED XP",
+        "🗒️ Misiones del día" to "+${Games.QUEST_XP} XP cada una",
+        "⚡ Ganar el duelo relámpago" to "+${Games.FLASH_XP} XP",
         "✅ Día cumplido" to "1 comida + $DAY_DONE_MIN_XP XP → suma a la racha",
     )
 }
@@ -167,6 +173,11 @@ data class AchievementContext(
     val level: Int,
     val coopChallengesDone: Int,
     val weighIns: Int,
+    val measuresCount: Int = 0,
+    val questDays: Int = 0,
+    val flashWins: Int = 0,
+    val bingoLines: Int = 0,
+    val oseraLevel: Int = 1,
 )
 
 data class Achievement(
@@ -198,6 +209,13 @@ object Achievements {
         Achievement("balanza", "Amigo de la balanza", "Te pesaste 10 veces", "📉") { it.weighIns >= 10 },
         Achievement("nivel_5", "Oso con experiencia", "Llegaste al nivel 5", "⭐") { it.level >= 5 },
         Achievement("coop_1", "Equipo dinamita", "Completaron un desafío cooperativo", "🤝") { it.coopChallengesDone >= 1 },
+        Achievement("medidas_1", "Cinta métrica", "Te tomaste las medidas por primera vez", "📏") { it.measuresCount >= 1 },
+        Achievement("medidas_5", "Detective del progreso", "5 registros de medidas", "🔎") { it.measuresCount >= 5 },
+        Achievement("misiones_10", "Misionero", "10 días con todas las misiones", "🗒️") { it.questDays >= 10 },
+        Achievement("relampago_5", "Rayo veloz", "Ganaste 5 duelos relámpago", "⚡") { it.flashWins >= 5 },
+        Achievement("bingo_1", "¡Bingo!", "Completaron su primera línea de bingo", "🎱") { it.bingoLines >= 1 },
+        Achievement("osera_3", "Fogón encendido", "La Osera llegó al nivel 3", "🔥") { it.oseraLevel >= 3 },
+        Achievement("osera_6", "Casa propia", "La Osera llegó al nivel 6", "🏡") { it.oseraLevel >= 6 },
     )
 
     fun byId(id: String) = all.firstOrNull { it.id == id }

@@ -15,7 +15,11 @@ enum class ActivityLevel(val factor: Double, val label: String, val detail: Stri
     VERY_ACTIVE(1.9, "Muy activo", "Laburo físico + entrenamiento"),
 }
 
-enum class GoalType(val label: String) { LOSE("Bajar"), MAINTAIN("Mantener"), GAIN("Subir") }
+enum class GoalType(val label: String, val emoji: String, val detail: String) {
+    LOSE("Bajar de peso", "🔥", "Déficit moderado para bajar grasa sin perder energía"),
+    GAIN("Ganar músculo", "💪", "Superávit leve + fuerza para sumar músculo"),
+    MAINTAIN("Mantener / tonificar", "⚖️", "Comer lo que gastás y mejorar la forma"),
+}
 
 data class BmiCategory(val label: String, val emoji: String)
 
@@ -35,6 +39,8 @@ data class Eta(
     /** Días estimados hasta el objetivo, o null si el ritmo no va hacia el objetivo / faltan datos. */
     val daysToGoal: Int?,
     val tooFastWarning: Boolean,
+    /** Subiendo más de 0,5 kg/semana: probablemente más grasa que músculo. */
+    val tooFastGain: Boolean = false,
 )
 
 /**
@@ -90,6 +96,28 @@ object HealthCalculator {
         targetKg < currentKg - 0.5 -> GoalType.LOSE
         targetKg > currentKg + 0.5 -> GoalType.GAIN
         else -> GoalType.MAINTAIN
+    }
+
+    /**
+     * Valida el peso objetivo según el objetivo elegido. Devuelve null si está bien,
+     * o un mensaje amable si no.
+     */
+    fun targetProblem(goal: GoalType, currentKg: Double, targetKg: Double, heightCm: Double): String? = when {
+        !isTargetAllowed(targetKg, heightCm) ->
+            "Ese objetivo queda con IMC menor a 18,5. El mínimo saludable para tu altura es ${"%.1f".format(minTargetWeight(heightCm))} kg 💚"
+        goal == GoalType.LOSE && targetKg >= currentKg -> "Para bajar, el objetivo tiene que ser menor que tu peso actual"
+        goal == GoalType.GAIN && targetKg <= currentKg -> "Para ganar músculo, el objetivo tiene que ser mayor que tu peso actual"
+        else -> null
+    }
+
+    /** Proteína diaria sugerida (g) según el objetivo: rango orientativo por kg de peso. */
+    fun proteinRange(goal: GoalType, weightKg: Double): IntRange {
+        val (lo, hi) = when (goal) {
+            GoalType.LOSE -> 1.6 to 2.0
+            GoalType.GAIN -> 1.6 to 2.2
+            GoalType.MAINTAIN -> 1.2 to 1.6
+        }
+        return (lo * weightKg).roundToInt()..(hi * weightKg).roundToInt()
     }
 
     fun minKcal(sex: Sex): Int = if (sex == Sex.MALE) MIN_KCAL_MALE else MIN_KCAL_FEMALE
@@ -154,7 +182,7 @@ object HealthCalculator {
         }
         // "Sostenido": la regresión ya cubre ≥ 5 días y ≥ 3 registros.
         val tooFast = perWeek < -1.0
-        return Eta(perWeek, days, tooFast)
+        return Eta(perWeek, days, tooFast, tooFastGain = perWeek > 0.5)
     }
 
     /** Media móvil de 7 días (calendario) para cada punto. */

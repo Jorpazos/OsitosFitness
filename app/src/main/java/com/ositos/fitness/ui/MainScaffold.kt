@@ -78,6 +78,7 @@ import com.ositos.fitness.ui.screens.HomeScreen
 import com.ositos.fitness.ui.screens.ListEditorDialog
 import com.ositos.fitness.ui.screens.LogSheetHost
 import com.ositos.fitness.ui.screens.MealSheet
+import com.ositos.fitness.ui.screens.MeasuresScreen
 import com.ositos.fitness.ui.screens.ExerciseSheet
 import com.ositos.fitness.ui.screens.PhotoSheet
 import com.ositos.fitness.ui.screens.ProfileScreen
@@ -116,7 +117,14 @@ fun MainScaffold(
     val s by vm.state.collectAsStateWithLifecycle()
     NavHost(nav, startDestination = "main") {
         composable("main") {
-            MainTabs(vm, s, themeMode, onThemeMode, onSignOut, onOpenWrapped = { nav.navigate("wrapped") })
+            MainTabs(
+                vm, s, themeMode, onThemeMode, onSignOut,
+                onOpenWrapped = { nav.navigate("wrapped") },
+                onOpenMeasures = { nav.navigate("measures") },
+            )
+        }
+        composable("measures") {
+            MeasuresScreen(s, onBack = { nav.popBackStack() }, onSave = { vm.addMeasures(it) })
         }
         composable("wrapped") {
             WrappedScreen(s, onClose = { nav.popBackStack() })
@@ -132,6 +140,7 @@ private fun MainTabs(
     onThemeMode: (ThemeMode) -> Unit,
     onSignOut: () -> Unit,
     onOpenWrapped: () -> Unit,
+    onOpenMeasures: () -> Unit,
 ) {
     val ctx = LocalContext.current
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
@@ -238,6 +247,7 @@ private fun MainTabs(
                         onEditPokeMessages = { editList = "pokes" },
                         onEditForfeits = { editList = "forfeits" },
                         onSignOut = onSignOut,
+                        onOpenMeasures = onOpenMeasures,
                     )
                 }
             }
@@ -251,7 +261,14 @@ private fun MainTabs(
     LogSheetHost(
         sheet = sheet,
         onDismiss = { sheet = null; vm.resetPhoto() },
-        onSelect = { sheet = it },
+        onSelect = {
+            if (it == Sheet.MEASURES) {
+                sheet = null
+                onOpenMeasures()
+            } else {
+                sheet = it
+            }
+        },
     ) { current ->
         val me = s.me ?: return@LogSheetHost
         when (current) {
@@ -277,7 +294,7 @@ private fun MainTabs(
             Sheet.WEIGHT -> WeightSheet(me.weights.lastOrNull()?.kg ?: me.profile.weightKg, Color(me.profile.color)) { kg ->
                 vm.addWeight(kg); sheet = null
             }
-            Sheet.MENU -> Unit
+            Sheet.MENU, Sheet.MEASURES -> Unit
         }
     }
 
