@@ -5,7 +5,7 @@ plugins {
     id("com.google.gms.google-services")
 }
 
-val aiBackend = (project.findProperty("ositos.aiBackend") as String?) ?: "firebase"
+val aiBackend = (project.findProperty("ositos.aiBackend") as String?) ?: "gemini"
 val workerUrl = (project.findProperty("ositos.workerUrl") as String?) ?: ""
 
 android {
@@ -84,11 +84,12 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 
     // Firebase
-    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation(platform("com.google.firebase:firebase-bom:33.16.0"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-functions")
     implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.firebase:firebase-ai")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     // Login con Google (Credential Manager)
