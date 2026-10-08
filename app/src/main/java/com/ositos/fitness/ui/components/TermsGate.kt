@@ -41,11 +41,7 @@ const val TERMS_BODY =
         "• Se comparte únicamente con la persona de tu dúo.\n\n" +
         "Fotos de comida:\n" +
         "• Si usás la estimación por foto, la imagen se envía a la IA solo para calcular las calorías.\n\n" +
-        "Ubicación (próximamente):\n" +
-        "• Más adelante vamos a sumar funciones con ubicación (por ejemplo, ver si tu compa está cerca).\n" +
-        "• Cuando las actives, Android te va a pedir permiso y vos decidís. Sin tu permiso, la app no usa tu ubicación.\n\n" +
-        "Tus datos son tuyos: podés pedir que se borren cuando quieras.\n" +
-        "Más detalles técnicos: en el repositorio del proyecto en GitHub."
+        "Tus datos son tuyos: podés pedir que se borren cuando quieras.\n" 
 
 /**
  * Cuadro de bases y condiciones: se muestra una vez (hasta que cambien).
