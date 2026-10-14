@@ -135,7 +135,11 @@ private fun Bubble(e: LogEntry, s: DuoState, mine: Boolean, onReact: (String) ->
         LogType.ACHIEVEMENT -> Achievements.byId(e.detail).let {
             Triple(it?.emoji ?: "🏅", "Desbloqueó: ${it?.name ?: e.detail}", it?.description ?: "")
         }
-        LogType.MEAL -> Triple(e.emoji.ifBlank { "🍽️" }, e.title, listOf(e.detail, "${e.kcal} kcal").filter { it.isNotBlank() }.joinToString(" · "))
+        LogType.MEAL -> Triple(
+            e.emoji.ifBlank { "🍽️" },
+            e.title,
+            listOf("${e.mealSlot.emoji} ${e.mealSlot.label}", e.detail, "${e.kcal} kcal").filter { it.isNotBlank() }.joinToString(" · "),
+        )
         LogType.EXERCISE -> Triple(e.emoji.ifBlank { "💪" }, e.title, "${e.detail} · 🔥 ${e.kcal} kcal")
         else -> Triple(e.emoji, e.title, e.detail)
     }

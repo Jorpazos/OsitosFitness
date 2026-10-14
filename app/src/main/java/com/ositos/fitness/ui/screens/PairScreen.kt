@@ -179,21 +179,22 @@ fun PairScreen(
                 Column(Modifier.fillMaxWidth()) {
                     when (st) {
                         is PairState.Found -> {
+                            // Pantalla neutral: no mostramos el nombre hasta que aceptes (privacidad).
+                            Text("✅ Código válido", style = MaterialTheme.typography.headlineSmall, color = OsitoColors.Good)
                             Text(
-                                "¡Encontramos a ${st.info.name.ifBlank { "tu compa" }}! 🎉",
-                                style = MaterialTheme.typography.headlineSmall,
-                            )
-                            Text(
-                                "PIN ${st.info.pin}. ¿Qué tipo de dúo son?",
+                                "El PIN ${st.info.pin} existe y está libre. Asegurate de que te lo haya pasado " +
+                                    "tu compañero/a: al emparejar vas a ver su nombre.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            Spacer(Modifier.height(8.dp))
+                            Text("¿Qué tipo de dúo son?", style = MaterialTheme.typography.titleSmall)
                             Spacer(Modifier.height(8.dp))
                             DuoKindPicker(kind) { kind = it }
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 BouncyButton(
-                                    "No es",
+                                    "Cancelar",
                                     onReset,
                                     Modifier.weight(1f),
                                     color = MaterialTheme.colorScheme.surfaceVariant,

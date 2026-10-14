@@ -31,7 +31,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ositos.fitness.data.LogEntry
+import com.ositos.fitness.data.Story
 import com.ositos.fitness.domain.Dates
+import com.ositos.fitness.domain.MealSlot
+import com.ositos.fitness.domain.OsitoChef
 import com.ositos.fitness.domain.Xp
 import com.ositos.fitness.ui.DuoState
 import com.ositos.fitness.ui.PersonSummary
@@ -59,6 +63,13 @@ fun HomeScreen(
     onOpenWrapped: () -> Unit,
     isSolo: Boolean = false,
     onFindPartner: () -> Unit = {},
+    stories: List<Story> = emptyList(),
+    storyUploading: Boolean = false,
+    onAddStory: () -> Unit = {},
+    onOpenStories: (String) -> Unit = {},
+    onAddMeal: (MealSlot) -> Unit = {},
+    onDeleteLog: (LogEntry) -> Unit = {},
+    onChefIdea: (OsitoChef.Idea, MealSlot) -> Unit = { _, _ -> },
 ) {
     val me = s.me ?: return
     val myColor = Color(me.profile.color)
@@ -72,6 +83,7 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { Header(s, me) }
+        item { StoriesBar(s, stories, storyUploading, onAddStory, onOpenStories) }
 
         if (s.coupleAtRisk) item {
             GameCard(accent = OsitoColors.Fire) {
@@ -123,6 +135,8 @@ fun HomeScreen(
             }
         }
 
+        item { MealDiaryCard(s, onAddMeal, onDeleteLog, onChefIdea) }
+
         item { QuestsCard(s, compact = true) }
 
         item { SectionTitle("Vos | ${s.partner?.name ?: "Tu compa"}") }
@@ -135,6 +149,8 @@ fun HomeScreen(
                 val series = listOfNotNull(me, s.partner).map { Color(it.profile.color) to it.weights }
                 val targets = listOfNotNull(me, s.partner).map { Color(it.profile.color) to it.profile.targetWeightKg }
                 WeightChart(series, targets)
+                Spacer(Modifier.height(8.dp))
+                BmiStepText(me.weights.lastOrNull()?.kg ?: me.profile.weightKg, me.profile.heightCm)
                 me.eta?.let {
                     Spacer(Modifier.height(8.dp))
                     EtaInfo(it, me.profile)

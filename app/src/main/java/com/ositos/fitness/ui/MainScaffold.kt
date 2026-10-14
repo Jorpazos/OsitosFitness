@@ -83,6 +83,8 @@ import com.ositos.fitness.ui.screens.ExerciseSheet
 import com.ositos.fitness.ui.screens.PhotoSheet
 import com.ositos.fitness.ui.screens.ProfileScreen
 import com.ositos.fitness.ui.screens.Sheet
+import com.ositos.fitness.ui.screens.StoryAddSheet
+import com.ositos.fitness.ui.screens.StoryViewer
 import com.ositos.fitness.ui.screens.ThemeMode
 import com.ositos.fitness.ui.screens.TimelineScreen
 import com.ositos.fitness.ui.screens.UsScreen
@@ -91,6 +93,7 @@ import com.ositos.fitness.ui.screens.WrappedScreen
 import com.ositos.fitness.ui.theme.OsitoColors
 import com.ositos.fitness.data.Account
 import com.ositos.fitness.data.LogType
+import com.ositos.fitness.domain.MealSlot
 import kotlinx.coroutines.delay
 
 private enum class Tab(val label: String, val icon: ImageVector) {
@@ -160,6 +163,11 @@ private fun MainTabs(
     var editList by remember { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val photo by vm.photo.collectAsStateWithLifecycle()
+    val stories by vm.stories.collectAsStateWithLifecycle()
+    val storyUploading by vm.storyUploading.collectAsStateWithLifecycle()
+    var mealSlot by remember { mutableStateOf(MealSlot.now()) }
+    var storyAdd by remember { mutableStateOf(false) }
+    var storyViewer by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(vm) {
         vm.events.collect { e ->
@@ -204,7 +212,7 @@ private fun MainTabs(
             floatingActionButton = {
                 val rot by animateFloatAsState(if (sheet != null) 45f else 0f, spring(Spring.DampingRatioMediumBouncy), label = "fab")
                 FloatingActionButton(
-                    onClick = { Haptics.tick(ctx); sheet = Sheet.MENU },
+                    onClick = { Haptics.tick(ctx); mealSlot = MealSlot.now(); sheet = Sheet.MENU },
                     containerColor = Color(s.me?.profile?.color ?: 0xFFFF7A45),
                     contentColor = Color.White,
                     shape = RoundedCornerShape(22.dp),
@@ -240,6 +248,13 @@ private fun MainTabs(
                         onPoke = { if (vm.sendPoke()) Haptics.poke(ctx) },
                         onOpenDuel = { tab = Tab.GAME },
                         onOpenWrapped = onOpenWrapped,
+                        stories = stories,
+                        storyUploading = storyUploading,
+                        onAddStory = { storyAdd = true },
+                        onOpenStories = { storyViewer = it },
+                        onAddMeal = { slot -> mealSlot = slot; sheet = Sheet.MEAL },
+                        onDeleteLog = vm::deleteLog,
+                        onChefIdea = vm::addChefIdea,
                     )
                     Tab.TIMELINE -> TimelineScreen(s, padding, onReact = vm::react, onDelete = vm::deleteLog)
                     Tab.GAME -> GameScreen(
@@ -286,16 +301,19 @@ private fun MainTabs(
     ) { current ->
         val me = s.me ?: return@LogSheetHost
         when (current) {
-            Sheet.MEAL -> MealSheet { name, kcal, detail, emoji ->
-                vm.addMeal(name, kcal, detail, emoji); sheet = null
-            }
+            Sheet.MEAL -> MealSheet(
+                initialSlot = mealSlot,
+                onAdd = { vm.addMeal(it.name, it.kcal, it.detail, it.emoji, it.slot) },
+                onDone = { sheet = null },
+            )
             Sheet.PHOTO -> PhotoSheet(
                 state = photo,
                 usedToday = vm.aiUsedToday(),
+                initialSlot = mealSlot,
                 onAnalyze = vm::analyzePhoto,
                 onReset = vm::resetPhoto,
-                onSave = { name, kcal, detail ->
-                    vm.addMeal(name, kcal, detail, "📸"); vm.resetPhoto(); sheet = null
+                onSave = { name, kcal, detail, slot ->
+                    vm.addMeal(name, kcal, detail, "📸", slot); vm.resetPhoto(); sheet = null
                 },
             )
             Sheet.EXERCISE -> {
@@ -310,6 +328,25 @@ private fun MainTabs(
             }
             Sheet.MENU, Sheet.MEASURES -> Unit
         }
+    }
+
+    if (storyAdd) {
+        StoryAddSheet(
+            partnerName = s.partner?.name,
+            onDismiss = { storyAdd = false },
+            onPublish = { uri, caption -> vm.postStory(uri, caption); storyAdd = false },
+        )
+    }
+    storyViewer?.let { uid ->
+        StoryViewer(
+            s = s,
+            uid = uid,
+            stories = stories,
+            onViewed = vm::markStoryViewed,
+            onReact = vm::reactStory,
+            onDelete = vm::deleteStory,
+            onClose = { storyViewer = null },
+        )
     }
 
     editList?.let { which ->

@@ -1,10 +1,6 @@
 package com.ositos.fitness.data
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
-import android.media.ExifInterface
 import android.net.Uri
 import android.util.Base64
 import com.google.firebase.Firebase
@@ -28,10 +24,8 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
 import android.util.Log
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 class AiLimitException : Exception("Llegaste al límite de 20 fotos por hoy. Mañana más 📸")
@@ -100,40 +94,8 @@ class AiRepository(private val context: Context) {
 
     private fun ByteArray.toBase64(): String = Base64.encodeToString(this, Base64.NO_WRAP)
 
-    /** Reduce a máx. 768 px de lado y JPEG calidad 70, respetando la rotación EXIF. */
-    private fun prepareImage(uri: Uri): ByteArray {
-        val resolver = context.contentResolver
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri).use { BitmapFactory.decodeStream(it, null, bounds) }
-        var sample = 1
-        while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
-        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-        val decoded = resolver.openInputStream(uri).use { BitmapFactory.decodeStream(it, null, opts) }
-            ?: error("No pude leer la foto")
-
-        val rotation = runCatching {
-            resolver.openInputStream(uri).use { input ->
-                when (ExifInterface(input!!).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-                    ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                    ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                    ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                    else -> 0f
-                }
-            }
-        }.getOrDefault(0f)
-
-        val scale = MAX_SIDE.toFloat() / max(decoded.width, decoded.height)
-        val matrix = Matrix().apply {
-            if (scale < 1f) postScale(scale, scale)
-            if (rotation != 0f) postRotate(rotation)
-        }
-        val finalBmp = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
-        val out = ByteArrayOutputStream()
-        finalBmp.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
-        if (finalBmp !== decoded) decoded.recycle()
-        finalBmp.recycle()
-        return out.toByteArray()
-    }
+    /** Reduce a máx. 640 px de lado y JPEG calidad 70, respetando la rotación EXIF. */
+    private fun prepareImage(uri: Uri): ByteArray = Images.compressJpeg(context, uri, MAX_SIDE, JPEG_QUALITY)
 
     /**
      * Prueba varios modelos de Gemini (por si alguno fue retirado o no está habilitado) y, si el

@@ -58,6 +58,7 @@ fun HealthResults(p: Profile, eta: Eta? = null) {
             }
         }
         BmiBar(bmi)
+        BmiStepText(p.weightKg, p.heightCm)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatTile("🔋", "${bmr.roundToInt()}", "Basal (kcal)", Modifier.weight(1f), OsitoColors.Purple)
             StatTile("⚡", "${tdee.roundToInt()}", "Gasto diario", Modifier.weight(1f), OsitoColors.Blue)
@@ -138,6 +139,25 @@ fun EtaInfo(eta: Eta, p: Profile) {
             }
         }
     }
+}
+
+/** "Te faltan 3,4 kg para pasar a Obesidad II" (o "estás en rango saludable"). */
+@Composable
+fun BmiStepText(weightKg: Double, heightCm: Double) {
+    val bmi = HealthCalculator.bmi(weightKg, heightCm)
+    val cat = HealthCalculator.bmiCategory(bmi)
+    val step = HealthCalculator.nextBmiStep(weightKg, heightCm)
+    Text(
+        if (step == null) {
+            "💚 IMC ${"%.1f".format(bmi)}: estás en el rango saludable. ¡A sostenerlo!"
+        } else {
+            "🎯 IMC ${"%.1f".format(bmi)} (${cat.label}): " +
+                (if (step.gain) "subiendo ${step.kg.fmt1()} kg llegás a ${step.next.label} ${step.next.emoji}"
+                else "bajando ${step.kg.fmt1()} kg pasás a ${step.next.label} ${step.next.emoji}")
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.Bold,
+    )
 }
 
 fun Double.fmt1(): String = "%.1f".format(this)

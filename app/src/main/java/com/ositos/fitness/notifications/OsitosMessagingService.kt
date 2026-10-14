@@ -24,6 +24,7 @@ class OsitosMessagingService : FirebaseMessagingService() {
         val body = data["body"] ?: message.notification?.body ?: ""
         val channel = if (data["type"] == "reminder") Notifications.CHANNEL_REMINDERS else Notifications.CHANNEL_POKES
         val id = (data["pokeId"] ?: message.messageId ?: System.currentTimeMillis().toString()).hashCode()
-        Notifications.show(this, id, title, body, channel)
+        val actions = if (channel == Notifications.CHANNEL_POKES) listOf(Notifications.pokeBackAction(this, id)) else emptyList()
+        Notifications.show(this, id, title, body, channel, actions)
     }
 }

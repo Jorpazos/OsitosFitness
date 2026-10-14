@@ -6,6 +6,7 @@ import com.ositos.fitness.domain.DayStats
 import com.ositos.fitness.domain.Defaults
 import com.ositos.fitness.domain.GoalType
 import com.ositos.fitness.domain.HealthCalculator
+import com.ositos.fitness.domain.MealSlot
 import com.ositos.fitness.domain.Measures
 import com.ositos.fitness.domain.Sex
 
@@ -141,7 +142,12 @@ data class LogEntry(
     val kcal: Int = 0,
     val weightKg: Double? = null,
     val reactions: Map<String, String> = emptyMap(),
+    /** Comida del día (desayuno, almuerzo…). Los registros viejos no la tienen: se deduce de la hora. */
+    val slot: MealSlot? = null,
 ) {
+    /** La comida a la que pertenece (guardada o deducida por la hora). */
+    val mealSlot: MealSlot get() = slot ?: MealSlot.forTimestamp(ts)
+
     companion object {
         @Suppress("UNCHECKED_CAST")
         fun from(d: DocumentSnapshot): LogEntry? {
@@ -158,6 +164,7 @@ data class LogEntry(
                 kcal = d.getLong("kcal")?.toInt() ?: 0,
                 weightKg = d.getDouble("weightKg"),
                 reactions = (d.get("reactions") as? Map<String, String>) ?: emptyMap(),
+                slot = MealSlot.fromName(d.getString("slot")),
             )
         }
     }
@@ -168,7 +175,7 @@ fun dayStatsFrom(d: DocumentSnapshot): DayStats? {
     return DayStats(
         uid = d.getString("uid") ?: return null,
         dayKey = d.getString("dayKey") ?: return null,
-        meals = d.getLong("meals")?.toInt() ?: 0,
+        meals = (d.getLong("meals")?.toInt() ?: 0).coerceAtLeast(0),
         exercises = d.getLong("exercises")?.toInt() ?: 0,
         water = d.getLong("water")?.toInt() ?: 0,
         weighed = d.getBoolean("weighed") ?: false,
@@ -176,6 +183,7 @@ fun dayStatsFrom(d: DocumentSnapshot): DayStats? {
         kcalOut = d.getLong("kcalOut")?.toInt() ?: 0,
         goalKcal = d.getLong("goalKcal")?.toInt() ?: 2000,
         measured = d.getBoolean("measured") ?: false,
+        story = d.getBoolean("story") ?: false,
     )
 }
 
@@ -320,3 +328,38 @@ data class Poke(
 
 data class AiFood(val name: String, val portion: String, val kcal: Int)
 data class AiFoodResult(val foods: List<AiFood>, val totalKcal: Int, val confidence: String)
+
+/**
+ * Historia de 24 h: una foto (JPEG chiquito en base64, así no hace falta Cloud Storage) que
+ * solo ven los dos del dúo. Se borra sola al día siguiente.
+ */
+data class Story(
+    val id: String,
+    val uid: String,
+    val ts: Long,
+    val image: String,
+    val caption: String = "",
+    val viewedBy: Map<String, Long> = emptyMap(),
+    val reactions: Map<String, String> = emptyMap(),
+) {
+    val expired: Boolean get() = System.currentTimeMillis() - ts > TTL_MS
+
+    companion object {
+        const val TTL_MS = 24 * 3_600_000L
+
+        @Suppress("UNCHECKED_CAST")
+        fun from(d: DocumentSnapshot): Story? {
+            if (!d.exists()) return null
+            return Story(
+                id = d.id,
+                uid = d.getString("uid") ?: return null,
+                ts = d.getLong("ts") ?: return null,
+                image = d.getString("image") ?: return null,
+                caption = d.getString("caption") ?: "",
+                viewedBy = (d.get("viewedBy") as? Map<String, Any?>)
+                    ?.mapValues { (it.value as? Number)?.toLong() ?: 0L } ?: emptyMap(),
+                reactions = (d.get("reactions") as? Map<String, String>) ?: emptyMap(),
+            )
+        }
+    }
+}

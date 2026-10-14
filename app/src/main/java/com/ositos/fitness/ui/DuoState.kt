@@ -17,6 +17,7 @@ import com.ositos.fitness.domain.GoalType
 import com.ositos.fitness.domain.HealthCalculator
 import com.ositos.fitness.domain.Level
 import com.ositos.fitness.domain.Levels
+import com.ositos.fitness.domain.MealSlot
 import com.ositos.fitness.domain.Streaks
 import com.ositos.fitness.domain.WeightPoint
 import com.ositos.fitness.domain.Xp
@@ -43,6 +44,8 @@ data class PersonSummary(
     /** Días con las 3 misiones completas y duelos relámpago ganados (para logros). */
     val questDays: Int = 0,
     val flashWins: Int = 0,
+    /** Días en que subió una historia. */
+    val storyDays: Set<Long> = emptySet(),
 ) {
     val name get() = profile.nickname.ifBlank { "Osito" }
     val budget get() = today.goalKcal + today.kcalOut
@@ -72,8 +75,19 @@ data class DuoState(
     val bingo: Games.Bingo? = null,
     val osera: Games.Osera? = null,
     val bingoLinesEver: Int = 0,
+    /** Racha de historias: días seguidos en que subieron historia (los dos, si hay dúo). */
+    val storyStreak: Int = 0,
+    val bestStoryStreak: Int = 0,
+    /** La racha de historias venía viva y hoy todavía falta alguna. */
+    val storyStreakAtRisk: Boolean = false,
 ) {
     val hasPartner get() = partner != null
+
+    /** Lo que comió alguien un día, agrupado por comida (desayuno, almuerzo…). */
+    fun mealsOf(uid: String, dayKey: String = Dates.todayKey()): Map<MealSlot, List<LogEntry>> =
+        logs.filter { it.uid == uid && it.type == LogType.MEAL && it.dayKey == dayKey }
+            .sortedBy { it.ts }
+            .groupBy { it.mealSlot }
     fun nameOf(uid: String?): String = when (uid) {
         me?.profile?.uid -> me?.name ?: "Vos"
         partner?.profile?.uid -> partner?.name ?: "Tu compa"
@@ -136,6 +150,7 @@ object Summaries {
             measures = allMeasures.filter { it.uid == profile.uid }.sortedBy { it.dayKey },
             questDays = days.count { Games.allQuestsDone(it) },
             flashWins = flashWins,
+            storyDays = days.filter { it.story }.map { it.epochDay }.toSet(),
         )
     }
 
@@ -193,6 +208,9 @@ object Summaries {
         flashWins = p.flashWins,
         bingoLines = s.bingoLinesEver,
         oseraLevel = s.osera?.level ?: 1,
+        storyDays = p.storyDays.size,
+        bestStoryStreak = s.bestStoryStreak,
+        fullDiaryDays = p.days.count { it.meals >= MealSlot.entries.size },
     )
 
     fun build(
@@ -220,6 +238,12 @@ object Summaries {
         val team = if (me != null && partner != null) {
             teamPoints(me.days, partner.days, weeks, coopNow?.done == true, today)
         } else null
+        // Historias: con dúo cuenta el día si subieron los dos (como en Snapchat); solo, si subiste vos.
+        val storyBoth: Set<Long> = when {
+            me == null -> emptySet()
+            partner != null -> me.storyDays intersect partner.storyDays
+            else -> me.storyDays
+        }
         return DuoState(
             loading = false,
             myUid = myUid,
@@ -237,6 +261,9 @@ object Summaries {
             bestCoupleStreak = Streaks.best(coupleDays),
             coupleAtRisk = me != null && partner != null && Streaks.coupleAtRisk(me.doneDays, partner.doneDays, todayEpoch),
             pokesSentToday = logs.count { it.uid == myUid && it.type == LogType.POKE && it.dayKey == todayKey },
+            storyStreak = Streaks.current(storyBoth, todayEpoch),
+            bestStoryStreak = Streaks.best(storyBoth),
+            storyStreakAtRisk = (todayEpoch - 1) in storyBoth && todayEpoch !in storyBoth,
         )
     }
 }

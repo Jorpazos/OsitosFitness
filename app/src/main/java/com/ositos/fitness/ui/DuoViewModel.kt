@@ -1,6 +1,8 @@
 package com.ositos.fitness.ui
 
+import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ositos.fitness.data.AiFoodResult
@@ -8,15 +10,22 @@ import com.ositos.fitness.data.AiRepository
 import com.ositos.fitness.data.CoopType
 import com.ositos.fitness.data.Duo
 import com.ositos.fitness.data.DuoRepository
+import com.ositos.fitness.data.Images
 import com.ositos.fitness.data.LogEntry
+import com.ositos.fitness.data.LogType
 import com.ositos.fitness.data.Profile
+import com.ositos.fitness.data.Story
 import com.ositos.fitness.data.Week
 import com.ositos.fitness.domain.Achievement
 import com.ositos.fitness.domain.Achievements
 import com.ositos.fitness.domain.Dates
 import com.ositos.fitness.domain.HealthCalculator
 import com.ositos.fitness.domain.Level
+import com.ositos.fitness.domain.MealSlot
+import com.ositos.fitness.domain.OsitoChef
 import com.ositos.fitness.domain.Xp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -49,6 +58,7 @@ class DuoViewModel(
     private val repo: DuoRepository,
     private val ai: AiRepository,
     private val myUid: String,
+    private val app: Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DuoState(myUid = myUid))
@@ -59,6 +69,16 @@ class DuoViewModel(
 
     private val _photo = MutableStateFlow<PhotoState>(PhotoState.Idle)
     val photo: StateFlow<PhotoState> = _photo.asStateFlow()
+
+    private val _stories = MutableStateFlow<List<Story>>(emptyList())
+    /** Historias de las últimas 24 h (de los dos). */
+    val stories: StateFlow<List<Story>> = _stories.asStateFlow()
+
+    private val _storyUploading = MutableStateFlow(false)
+    val storyUploading: StateFlow<Boolean> = _storyUploading.asStateFlow()
+
+    /** Comidas del día que ya sumaron al contador (por si se cargan dos cosas muy rápido). */
+    private val countedMeals = mutableSetOf<String>()
 
     private var lastLevel: Int? = null
     private val unlocking = mutableSetOf<String>()
@@ -87,6 +107,11 @@ class DuoViewModel(
                     onNewState(s)
                 }
         }
+
+        viewModelScope.launch {
+            repo.storiesFlow().catch { }.collect { _stories.value = it }
+        }
+        viewModelScope.launch { runCatching { repo.cleanupExpiredStories() } }
 
         viewModelScope.launch {
             repo.pokesToMeFlow().catch { }.collect { pokes ->
@@ -172,8 +197,41 @@ class DuoViewModel(
     private fun xpIfMeal(): Int = (_state.value.me?.today?.meals ?: 0).let { if (it < Xp.MAX_MEALS) Xp.PER_MEAL else 0 }
     private fun xpIfExercise(): Int = (_state.value.me?.today?.exercises ?: 0).let { if (it < Xp.MAX_EXERCISES) Xp.PER_EXERCISE else 0 }
 
-    fun addMeal(name: String, kcal: Int, detail: String = "", emoji: String = "🍽️") =
-        launchAction(xpIfMeal()) { repo.addMeal(name.ifBlank { "Comida" }, kcal, detail, emoji, goal) }
+    private fun mealKey(dayKey: String, slot: MealSlot) = "${dayKey}_${slot.name}"
+
+    /** ¿Es lo primero que se carga hoy en esa comida? (solo eso suma una "comida" y XP). */
+    private fun claimNewMeal(slot: MealSlot): Boolean {
+        val key = mealKey(Dates.todayKey(), slot)
+        val empty = _state.value.mealsOf(myUid)[slot].isNullOrEmpty()
+        val isNew = empty && key !in countedMeals
+        if (isNew) countedMeals += key
+        return isNew
+    }
+
+    /** Agrega un alimento a una comida (desayuno, almuerzo…). Dos huevos = 1 comida, no 2. */
+    fun addMeal(name: String, kcal: Int, detail: String = "", emoji: String = "🍽️", slot: MealSlot = MealSlot.now()) {
+        val newMeal = claimNewMeal(slot)
+        val xp = if (newMeal) xpIfMeal() else 0
+        launchAction(xp) {
+            try {
+                repo.addMeal(name.ifBlank { "Comida" }, kcal, detail, emoji, goal, slot, newMeal)
+            } catch (e: Exception) {
+                if (newMeal) countedMeals -= mealKey(Dates.todayKey(), slot)
+                throw e
+            }
+        }
+    }
+
+    /** Carga de una todos los alimentos de una idea del Osito Chef. */
+    fun addChefIdea(idea: OsitoChef.Idea, slot: MealSlot) {
+        val newMeal = claimNewMeal(slot)
+        val xp = if (newMeal) xpIfMeal() else 0
+        launchAction(xp, success = "👨‍🍳 ¡Cargado en ${slot.label.lowercase()}!") {
+            idea.items.forEachIndexed { i, f ->
+                repo.addMeal(f.name, f.kcal, "${f.portion} · idea del Osito Chef", f.emoji, goal, slot, newMeal && i == 0)
+            }
+        }
+    }
 
     fun addExercise(name: String, kcal: Int, detail: String, emoji: String) =
         launchAction(xpIfExercise()) { repo.addExercise(name, kcal, detail, emoji, goal) }
@@ -200,7 +258,13 @@ class DuoViewModel(
         launchAction(xp) { repo.addWater(delta, goal) }
     }
 
-    fun deleteLog(entry: LogEntry) = launchAction(success = "Borrado 🗑️") { repo.deleteLog(entry) }
+    fun deleteLog(entry: LogEntry) {
+        // En comidas: solo se descuenta "una comida" si era lo último cargado en esa comida.
+        val lastOfMeal = entry.type != LogType.MEAL ||
+            _state.value.mealsOf(entry.uid, entry.dayKey)[entry.mealSlot].orEmpty().none { it.id != entry.id }
+        if (entry.type == LogType.MEAL && lastOfMeal) countedMeals -= mealKey(entry.dayKey, entry.mealSlot)
+        launchAction(success = "Borrado 🗑️") { repo.deleteLog(entry, lastOfMeal) }
+    }
 
     fun react(entry: LogEntry, emoji: String) {
         val current = entry.reactions[myUid]
@@ -281,4 +345,39 @@ class DuoViewModel(
     fun celebrate() {
         _events.tryEmit(UiEvent.Confetti)
     }
+
+    // ---------- Historias ----------
+
+    fun postStory(uri: Uri, caption: String) {
+        if (_storyUploading.value) return
+        _storyUploading.value = true
+        val firstToday = _state.value.me?.today?.story != true
+        viewModelScope.launch {
+            try {
+                val b64 = withContext(Dispatchers.IO) {
+                    // ~720 px y JPEG 65: entra cómodo en un documento de Firestore (máx. 1 MB).
+                    Base64.encodeToString(Images.compressJpeg(app, uri, 720, 65), Base64.NO_WRAP)
+                }
+                repo.postStory(b64, caption.trim().take(120), goal)
+                if (firstToday) _events.tryEmit(UiEvent.XpGained(Xp.STORY))
+                _events.tryEmit(UiEvent.Toast("📸 ¡Historia publicada! Dura 24 h"))
+            } catch (e: Exception) {
+                _events.tryEmit(UiEvent.Toast("No se pudo subir la historia: ${e.message}"))
+            } finally {
+                _storyUploading.value = false
+            }
+        }
+    }
+
+    fun markStoryViewed(story: Story) {
+        if (story.uid == myUid || myUid in story.viewedBy) return
+        viewModelScope.launch { runCatching { repo.markStoryViewed(story.id) } }
+    }
+
+    fun reactStory(story: Story, emoji: String) {
+        val current = story.reactions[myUid]
+        launchAction { repo.reactStory(story.id, if (current == emoji) null else emoji) }
+    }
+
+    fun deleteStory(story: Story) = launchAction(success = "Historia borrada 🗑️") { repo.deleteStory(story.id) }
 }

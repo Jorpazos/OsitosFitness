@@ -18,6 +18,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -37,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import com.ositos.fitness.data.DuoKind
 import com.ositos.fitness.data.Profile
+import com.ositos.fitness.notifications.Reminders
 import com.ositos.fitness.ui.DuoState
 import com.ositos.fitness.ui.components.Avatar
 import com.ositos.fitness.ui.components.BouncyButton
@@ -230,6 +232,8 @@ fun ProfileScreen(
                 TextButton(onClick = onEditForfeits) { Text("🎲 Editar lista de prendas") }
             }
         }
+        item { SectionTitle("Recordatorios") }
+        item { RemindersCard() }
         item { SectionTitle("Apariencia") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -310,6 +314,37 @@ fun ProfileScreen(
             text = { Text("Tus datos quedan guardados en el dúo. Podés volver a entrar con la misma cuenta de Google.") },
             confirmButton = { TextButton(onClick = { confirmSignOut = false; onSignOut() }) { Text("Salir") } },
             dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Cancelar") } },
+        )
+    }
+}
+
+/** Qué notificaciones querés recibir (quedan guardadas en este celu). */
+@Composable
+private fun RemindersCard() {
+    val ctx = LocalContext.current
+    GameCard {
+        listOf(
+            Triple(Reminders.WATER, "💧 Agua", "Si venís atrasado con los vasos, cada ~2 h (de 9 a 21), con botón \"+1 vaso\""),
+            Triple(Reminders.MEALS, "🍽️ Comidas", "Si a la hora del desayuno, almuerzo, merienda o cena todavía no cargaste nada"),
+            Triple(Reminders.STORIES, "📸 Historias", "Cuando tu compa sube una y si la racha de fotos está por apagarse"),
+        ).forEach { (key, title, desc) ->
+            var on by remember(key) { mutableStateOf(Reminders.isOn(ctx, key)) }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleSmall)
+                    Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.width(8.dp))
+                Switch(checked = on, onCheckedChange = {
+                    on = it
+                    Reminders.set(ctx, key, it)
+                })
+            }
+        }
+        Text(
+            "Los pinchazos y las rachas se ajustan arriba. También podés silenciar cada tipo desde los ajustes de notificaciones del celu.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

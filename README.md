@@ -17,9 +17,11 @@ Sin culpa, con mucho XP.
 | **Dúos por PIN** | Cada persona tiene su PIN; poniendo el del otro arman su dúo (pareja, amigas, hermanos…). Varios dúos, aislados entre sí |
 | **Medidas** | Panza, cadera, pecho, brazo y muslo con guía ilustrada (osito con cinta métrica) de cómo y dónde medir, historial y avance |
 | **Actualizaciones** | Cada push a `main` publica una versión en GitHub Releases; la app la detecta y se actualiza sola (repo público) |
-| **Perfil y cálculos** | IMC con barra de rangos, rango saludable (IMC 18,5–24,9), peso de referencia (IMC 22), metabolismo basal (Mifflin-St Jeor), gasto diario (TDEE), meta de kcal (déficit máx. 500, mantenimiento o superávit), cintura/cadera, fecha estimada según la tendencia real de 14 días |
+| **Perfil y cálculos** | IMC con barra de rangos y **cuánto falta para la categoría siguiente** (ej.: "bajando 4,5 kg pasás a Obesidad II"), rango saludable (IMC 18,5–24,9), peso de referencia (IMC 22), metabolismo basal (Mifflin-St Jeor), gasto diario (TDEE), meta de kcal (déficit máx. 500, mantenimiento o superávit), cintura/cadera, fecha estimada según la tendencia real de 14 días |
 | **Límites de seguridad** | Nunca < 1200 kcal (mujer) / 1500 (hombre) · no deja poner objetivos con IMC < 18,5 · aviso amable si bajás > 1 kg/semana sostenido |
-| **Comidas** | Buscador con ~70 comidas argentinas (milanesa, empanadas, mate, medialunas, asado, fainá, chocotorta…), carga manual, y **foto con IA** (Claude Sonnet 5.5) editable antes de guardar. Límite 20 fotos/día |
+| **Comidas** | Diario del día estilo YAZIO: **desayuno, almuerzo, merienda y cena**, cada una con las kcal recomendadas según tu meta y lo que te queda; cada alimento se puede borrar. Buscador con ~90 comidas argentinas, **cantidad con − / +** en unidades, gramos o mililitros (2 huevos = 1 comida, no 2), carga manual con kcal por unidad o cada 100 g/ml, y **foto con IA** (cámara o galería) editable antes de guardar. Límite 20 fotos/día. 🎲 **Osito Chef**: te propone qué comer con lo que te queda |
+| **Historias** | Una foto por día que dura 24 h y **solo ve tu dúo** (estilo Snapchat), con reacciones, "visto" y 🔥 **racha de historias** cuando los dos suben todos los días |
+| **Recordatorios** | 💧 agua cada ~2 h si venís atrasado (con botón **"+1 vaso"** en la notificación), comidas a su hora, historias nuevas y racha en peligro, pinchazos con **"Pincharle de vuelta"**. Cada uno se apaga desde el Perfil |
 | **Ejercicio** | Kcal directas del reloj, o actividad + minutos + intensidad con METs (18 actividades) |
 | **Inicio** | Anillo animado de kcal (el ejercicio suma margen), agua en 1 toque, gráfico de peso con media móvil de 7 días, vista dividida **Vos \| Tu pareja** |
 | **Juego** | XP por hábitos, 12 niveles, racha individual y **racha de pareja**, duelo semanal con **prenda**, **pinchazos** con push (máx. 3/día, silenciables), alertas automáticas a la noche, 19 logros con animación Lottie, desafíos cooperativos, reacciones 👏🔥💪, resumen semanal tipo **wrapped** |
@@ -80,6 +82,9 @@ firebase deploy --only firestore:rules
 ```
 
 (Alternativa sin CLI: copiá el contenido de `firestore.rules` en Firestore → Reglas → Publicar.)
+
+⚠️ Cuando una versión nueva trae cambios en `firestore.rules` (por ejemplo, las **historias**),
+hay que volver a publicarlas; si no, esa función nueva da "permiso denegado".
 
 🔒 **Recomendado**: en `firestore.rules`, función `emailAllowed()`, cambiá `return true;` por
 `return request.auth.token.email in ['vos@gmail.com', 'tu.pareja@gmail.com'];` y volvé a desplegar.

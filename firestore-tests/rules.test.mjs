@@ -120,6 +120,29 @@ await t("miembro edita listas del dúo", assertSucceeds(updateDoc(doc(A, "duos/d
 await t("miembro no echa al otro", assertFails(updateDoc(doc(A, "duos/duoAB"), { members: ["alice"] })));
 await t("semanas", assertSucceeds(setDoc(doc(B, "duos/duoAB/weeks/2026-W41"), { forfeit: "Masajes" }, { merge: true })));
 await t("aiUsage cerrado", assertFails(getDoc(doc(A, "duos/duoAB/aiUsage/alice_x"))));
+
+// ---------- Historias (24 h, solo el dúo) ----------
+const story = (uid, extra = {}) => ({ uid, ts: Date.now(), dayKey: "2026-10-14", image: "QUJD", caption: "hola", viewedBy: {}, reactions: {}, ...extra });
+await t("alice sube una historia", assertSucceeds(setDoc(doc(A, "duos/duoAB/stories/s1"), story("alice"))));
+await t("alice no sube una historia como bob", assertFails(setDoc(doc(A, "duos/duoAB/stories/s2"), story("bob"))));
+await t("historia con fecha en el futuro lejano no", assertFails(setDoc(doc(A, "duos/duoAB/stories/s3"), story("alice", { ts: Date.now() + 86400000 }))));
+await t("historia gigante no", assertFails(setDoc(doc(A, "duos/duoAB/stories/s4"), story("alice", { image: "x".repeat(950000) }))));
+await t("historia ya 'vista' al crearla no", assertFails(setDoc(doc(A, "duos/duoAB/stories/s5"), story("alice", { viewedBy: { bob: 1 } }))));
+await t("carol no sube historias a otro dúo", assertFails(setDoc(doc(C, "duos/duoAB/stories/s6"), story("carol"))));
+await t("bob ve las historias del dúo", assertSucceeds(getDocs(query(collection(B, "duos/duoAB/stories"), where("ts", ">", 0)))));
+await t("carol no ve historias de otro dúo", assertFails(getDocs(collection(C, "duos/duoAB/stories"))));
+await t("bob marca la historia como vista", assertSucceeds(updateDoc(doc(B, "duos/duoAB/stories/s1"), { "viewedBy.bob": 123 })));
+await t("bob reacciona a la historia", assertSucceeds(updateDoc(doc(B, "duos/duoAB/stories/s1"), { "reactions.bob": "🔥" })));
+await t("bob no marca 'visto' por alice", assertFails(updateDoc(doc(B, "duos/duoAB/stories/s1"), { "viewedBy.alice": 1 })));
+await t("bob no cambia la foto de alice", assertFails(updateDoc(doc(B, "duos/duoAB/stories/s1"), { image: "HACK" })));
+await t("bob no borra la historia de alice", assertFails(deleteDoc(doc(B, "duos/duoAB/stories/s1"))));
+await t("alice borra su historia", assertSucceeds(deleteDoc(doc(A, "duos/duoAB/stories/s1"))));
+await t("alice marca su día con historia", assertSucceeds(setDoc(doc(A, "duos/duoAB/days/alice_2026-10-14"), { uid: "alice", dayKey: "2026-10-14", story: true }, { merge: true })));
+
+// ---------- PIN sin nombre (privacidad al emparejar) ----------
+await t("alice borra su nombre del PIN", assertSucceeds(updateDoc(doc(A, "pins/ALICE1"), { name: deleteField() })));
+await t("carol no toca el PIN de alice", assertFails(updateDoc(doc(C, "pins/ALICE1"), { name: "x" })));
+await t("comida con momento del día", assertSucceeds(setDoc(doc(A, "duos/duoAB/logs/l2"), { uid: "alice", type: "MEAL", ts: 2, dayKey: "2026-10-14", title: "2 × Huevo duro", detail: "2 × 1 unidad", emoji: "🥚", kcal: 150, weightKg: null, reactions: {}, slot: "BREAKFAST" })));
 await t("otros paths cerrados", assertFails(setDoc(doc(A, "otra/cosa"), { a: 1 })));
 
 // ---------- Desemparejar y volver a emparejar ----------

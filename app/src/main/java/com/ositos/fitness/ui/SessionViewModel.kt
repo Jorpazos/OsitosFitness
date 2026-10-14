@@ -187,14 +187,16 @@ class SessionViewModel(
         }
     }
 
-    fun confirmPair(kind: DuoKind) {
+    /** Recién al aceptar se revela con quién quedaste emparejado ([onPaired] recibe su nombre). */
+    fun confirmPair(kind: DuoKind, onPaired: (String) -> Unit = {}) {
         val found = (_pair.value as? PairState.Found)?.info ?: return
         val account = (_session.value as? Session.NeedsPartner)?.account ?: return
         _pair.value = PairState.Pairing
         viewModelScope.launch {
             try {
-                val duoId = repo.pairWith(account, found.pin, kind)
+                val (duoId, partnerName) = repo.pairWith(account, found.pin, kind)
                 _pair.value = PairState.Idle
+                onPaired(partnerName)
                 enterDuo(duoId)
             } catch (e: Exception) {
                 _pair.value = PairState.Error(e.message ?: "No se pudo emparejar")

@@ -38,6 +38,11 @@
             </intent-filter>
         </service>
 
+        <!-- Botones de las notificaciones ("+1 vaso", "Pincharle de vuelta") -->
+        <receiver
+            android:name=".notifications.ActionReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

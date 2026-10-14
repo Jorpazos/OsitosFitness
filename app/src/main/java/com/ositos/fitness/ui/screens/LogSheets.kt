@@ -75,9 +75,13 @@ import com.ositos.fitness.data.AiFood
 import com.ositos.fitness.data.AiRepository
 import com.ositos.fitness.domain.Activities
 import com.ositos.fitness.domain.ActivityType
+import com.ositos.fitness.domain.FoodItem
+import com.ositos.fitness.domain.FoodUnit
 import com.ositos.fitness.domain.Foods
 import com.ositos.fitness.domain.HealthCalculator
 import com.ositos.fitness.domain.Intensity
+import com.ositos.fitness.domain.MealSlot
+import com.ositos.fitness.domain.Portions
 import com.ositos.fitness.ui.PhotoState
 import com.ositos.fitness.ui.components.BouncyButton
 import com.ositos.fitness.ui.components.Haptics
@@ -162,79 +166,342 @@ private fun MenuSheet(onSelect: (Sheet) -> Unit) {
     }
 }
 
-// ------------------------------------------------------------------ Comida manual
+// ------------------------------------------------------------------ Comida
+
+/** Lo que se carga en el diario: un alimento (con su cantidad ya calculada) en una comida del día. */
+data class MealInput(val name: String, val kcal: Int, val detail: String, val emoji: String, val slot: MealSlot)
+
+/** Selector de comida del día: desayuno, almuerzo, merienda o cena. */
+@Composable
+fun SlotPicker(selected: MealSlot, onSelect: (MealSlot) -> Unit) {
+    val ctx = LocalContext.current
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        MealSlot.entries.forEach { slot ->
+            val on = slot == selected
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(if (on) OsitoColors.Orange.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .clickable { Haptics.tick(ctx); onSelect(slot) }
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(slot.emoji, fontSize = 20.sp)
+                Text(
+                    slot.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (on) OsitoColors.Orange else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Cargar comida: elegís la comida del día, buscás el alimento y ajustás la cantidad con − / +
+ * (unidades, gramos o mililitros). Podés cargar varias cosas seguidas: 2 huevos + 1 tostada
+ * en el desayuno cuentan como UNA comida.
+ */
+@Composable
+fun MealSheet(initialSlot: MealSlot, onAdd: (MealInput) -> Unit, onDone: () -> Unit) {
+    var slot by rememberSaveable { mutableStateOf(initialSlot) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var selected by remember { mutableStateOf<FoodItem?>(null) }
+    var manual by rememberSaveable { mutableStateOf(false) }
+    val added = remember { mutableStateListOf<String>() }
+    val results = remember(query) { Foods.search(query) }
+
+    fun add(input: MealInput) {
+        onAdd(input)
+        added += "${input.emoji} ${input.name} · ${input.kcal} kcal (${input.slot.label.lowercase()})"
+        selected = null
+        manual = false
+        query = ""
+    }
+
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Comida", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+            if (added.isNotEmpty()) {
+                BouncyButton("Listo", onDone, color = OsitoColors.Mint, emoji = "✅")
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        SlotPicker(slot) { slot = it }
+        if (added.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(OsitoColors.Mint.copy(alpha = 0.12f))
+                    .padding(10.dp),
+            ) {
+                Text("Ya agregaste:", style = MaterialTheme.typography.labelMedium, color = OsitoColors.Mint)
+                added.forEach { Text("✓ $it", style = MaterialTheme.typography.bodySmall) }
+                Text(
+                    "Podés seguir sumando cosas a la misma comida 😉",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+
+        val sel = selected
+        when {
+            sel != null -> FoodAmountEditor(sel, slot, onBack = { selected = null }, onAdd = ::add)
+            manual -> ManualFoodEditor(query, slot, onBack = { manual = false }, onAdd = ::add)
+            else -> {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Buscar: milanesa, huevo, mate…") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.heightIn(max = 300.dp)) {
+                    items(results, key = { it.name }) { f ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.medium)
+                                .clickable { selected = f }
+                                .padding(vertical = 10.dp, horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(f.emoji, fontSize = 24.sp)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(f.name, style = MaterialTheme.typography.titleSmall)
+                                Text(f.portion, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Pill("${f.kcal} kcal", OsitoColors.Orange)
+                            Spacer(Modifier.width(6.dp))
+                            Box(
+                                Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(OsitoColors.Orange),
+                                contentAlignment = Alignment.Center,
+                            ) { Text("+", color = Color.White, style = MaterialTheme.typography.titleMedium) }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                BouncyButton(
+                    if (query.isBlank()) "¿No está? Cargalo a mano" else "Cargar \"${query.trim()}\" a mano",
+                    { manual = true },
+                    Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    emoji = "✍️",
+                )
+            }
+        }
+    }
+}
+
+/** Cantidad con − y + (y escribible), en la unidad elegida. */
+@Composable
+private fun AmountRow(amountText: String, unit: FoodUnit, onText: (String) -> Unit, onStep: (Boolean) -> Unit) {
+    val ctx = LocalContext.current
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+        Stepper("−") { Haptics.tick(ctx); onStep(false) }
+        Spacer(Modifier.width(12.dp))
+        OutlinedTextField(
+            value = amountText,
+            onValueChange = { v -> onText(v.filter { it.isDigit() || it == ',' || it == '.' }.take(6)) },
+            singleLine = true,
+            suffix = { Text(unit.short) },
+            textStyle = MaterialTheme.typography.titleLarge.copy(textAlign = TextAlign.Center),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.width(130.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Stepper("+") { Haptics.tick(ctx); onStep(true) }
+    }
+}
+
+private fun parseAmount(text: String): Double = text.replace(',', '.').toDoubleOrNull() ?: 0.0
+
+private fun quickAmounts(unit: FoodUnit): List<Double> = when (unit) {
+    FoodUnit.COUNT -> listOf(0.5, 1.0, 2.0, 3.0)
+    FoodUnit.GRAMS -> listOf(50.0, 100.0, 150.0, 200.0)
+    FoodUnit.ML -> listOf(100.0, 200.0, 250.0, 500.0)
+}
 
 @Composable
-fun MealSheet(onSave: (name: String, kcal: Int, detail: String, emoji: String) -> Unit) {
-    var query by rememberSaveable { mutableStateOf("") }
-    var manualName by rememberSaveable { mutableStateOf("") }
-    var manualKcal by rememberSaveable { mutableStateOf("") }
-    val results = remember(query) { Foods.search(query) }
+private fun UnitAndAmount(
+    units: List<FoodUnit>,
+    unit: FoodUnit,
+    amountText: String,
+    onUnit: (FoodUnit) -> Unit,
+    onAmountText: (String) -> Unit,
+) {
+    if (units.size > 1) {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            units.forEachIndexed { i, u ->
+                SegmentedButton(
+                    selected = unit == u,
+                    onClick = { onUnit(u) },
+                    shape = SegmentedButtonDefaults.itemShape(i, units.size),
+                ) { Text(u.label, maxLines = 1) }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+    }
+    AmountRow(amountText, unit, onAmountText) { up ->
+        onAmountText(Portions.fmt(Portions.step(parseAmount(amountText), unit, up)))
+    }
+    Spacer(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally), modifier = Modifier.fillMaxWidth()) {
+        quickAmounts(unit).forEach { q ->
+            Pill(
+                "${Portions.fmt(q)} ${unit.short}",
+                OsitoColors.Purple,
+                Modifier.clickable { onAmountText(Portions.fmt(q)) },
+            )
+        }
+    }
+}
+
+/** Un alimento del catálogo: elegís unidad y cantidad, y ves las kcal al toque. */
+@Composable
+private fun FoodAmountEditor(f: FoodItem, slot: MealSlot, onBack: () -> Unit, onAdd: (MealInput) -> Unit) {
+    val units = remember(f) { Portions.unitsFor(f) }
+    var unit by remember(f) { mutableStateOf(FoodUnit.COUNT) }
+    var amountText by remember(f) { mutableStateOf("1") }
+    val amount = parseAmount(amountText)
+    val kcal = Portions.kcal(f, unit, amount)
+
     Column {
-        Text("Comida", style = MaterialTheme.typography.headlineSmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("‹ Volver") }
+            Spacer(Modifier.width(4.dp))
+            Text(f.emoji, fontSize = 28.sp)
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(f.name, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "${f.portion} = ${f.kcal} kcal",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        UnitAndAmount(units, unit, amountText, onUnit = {
+            unit = it
+            amountText = Portions.fmt(Portions.defaultAmount(f, it))
+        }, onAmountText = { amountText = it })
+        Spacer(Modifier.height(12.dp))
         Text(
-            "Tocá un alimento y listo. ¿Comiste el doble? Mantené apretado… mentira, cargalo dos veces 😅",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            "$kcal kcal",
+            style = MaterialTheme.typography.headlineMedium,
+            color = OsitoColors.Orange,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
         )
         Spacer(Modifier.height(10.dp))
+        BouncyButton(
+            "Agregar a ${slot.label.lowercase()}",
+            {
+                onAdd(
+                    MealInput(
+                        name = Portions.title(f.name, unit, amount),
+                        kcal = kcal,
+                        detail = Portions.describe(f, unit, amount),
+                        emoji = f.emoji,
+                        slot = slot,
+                    ),
+                )
+            },
+            Modifier.fillMaxWidth(),
+            enabled = amount > 0,
+            color = OsitoColors.Orange,
+            emoji = "➕",
+        )
+    }
+}
+
+/** Algo que no está en la lista: nombre, kcal (por unidad o cada 100 g/ml, como en la etiqueta) y cantidad. */
+@Composable
+private fun ManualFoodEditor(initialName: String, slot: MealSlot, onBack: () -> Unit, onAdd: (MealInput) -> Unit) {
+    var name by rememberSaveable { mutableStateOf(initialName.trim()) }
+    var unit by rememberSaveable { mutableStateOf(FoodUnit.COUNT) }
+    var kcalText by rememberSaveable { mutableStateOf("") }
+    var amountText by rememberSaveable { mutableStateOf("1") }
+    val amount = parseAmount(amountText)
+    val total = Portions.manualKcal(kcalText.toIntOrNull() ?: 0, unit, amount)
+
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("‹ Volver") }
+            Text("Carga a mano ✍️", style = MaterialTheme.typography.titleMedium)
+        }
+        Spacer(Modifier.height(6.dp))
         OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = { Text("Buscar: milanesa, empanada, mate…") },
+            value = name,
+            onValueChange = { name = it.take(40) },
+            label = { Text("¿Qué comiste?") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
-        LazyColumn(Modifier.heightIn(max = 300.dp)) {
-            items(results, key = { it.name }) { f ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(MaterialTheme.shapes.medium)
-                        .clickable { onSave(f.name, f.kcal, f.portion, f.emoji) }
-                        .padding(vertical = 10.dp, horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(f.emoji, fontSize = 24.sp)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(f.name, style = MaterialTheme.typography.titleSmall)
-                        Text(f.portion, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Pill("${f.kcal} kcal", OsitoColors.Orange)
-                }
-            }
-        }
+        OutlinedTextField(
+            value = kcalText,
+            onValueChange = { v -> kcalText = v.filter { it.isDigit() }.take(5) },
+            label = {
+                Text(
+                    when (unit) {
+                        FoodUnit.COUNT -> "kcal por unidad"
+                        FoodUnit.GRAMS -> "kcal cada 100 g (mirá la etiqueta)"
+                        FoodUnit.ML -> "kcal cada 100 ml (mirá la etiqueta)"
+                    },
+                )
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
         Spacer(Modifier.height(10.dp))
-        Text("¿No está? Cargalo a mano", style = MaterialTheme.typography.titleSmall)
-        Spacer(Modifier.height(6.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = manualName,
-                onValueChange = { manualName = it },
-                label = { Text("Nombre") },
-                singleLine = true,
-                modifier = Modifier.weight(1.6f),
-            )
-            OutlinedTextField(
-                value = manualKcal,
-                onValueChange = { v -> manualKcal = v.filter { it.isDigit() }.take(5) },
-                label = { Text("kcal") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f),
-            )
-        }
+        UnitAndAmount(FoodUnit.entries, unit, amountText, onUnit = {
+            unit = it
+            amountText = when (it) {
+                FoodUnit.COUNT -> "1"
+                FoodUnit.GRAMS -> "100"
+                FoodUnit.ML -> "200"
+            }
+        }, onAmountText = { amountText = it })
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "$total kcal",
+            style = MaterialTheme.typography.headlineMedium,
+            color = OsitoColors.Orange,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
         Spacer(Modifier.height(10.dp))
         BouncyButton(
-            "Guardar",
-            onClick = {
-                val name = manualName.ifEmpty { query }.ifBlank { "Comida" }
-                onSave(name, manualKcal.toIntOrNull() ?: 0, "Carga manual", "🍽️")
+            "Agregar a ${slot.label.lowercase()}",
+            {
+                val n = name.ifBlank { "Comida" }
+                onAdd(
+                    MealInput(
+                        name = Portions.title(n, unit, amount),
+                        kcal = total,
+                        detail = "Carga manual · " + Portions.describe(null, unit, amount),
+                        emoji = "🍽️",
+                        slot = slot,
+                    ),
+                )
             },
-            enabled = (manualKcal.toIntOrNull() ?: 0) > 0,
-            modifier = Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth(),
+            enabled = total > 0,
+            color = OsitoColors.Orange,
+            emoji = "➕",
         )
     }
 }
@@ -251,9 +518,10 @@ private fun newPhotoUri(context: Context): Uri {
 fun PhotoSheet(
     state: PhotoState,
     usedToday: Int,
+    initialSlot: MealSlot,
     onAnalyze: (Uri) -> Unit,
     onReset: () -> Unit,
-    onSave: (name: String, kcal: Int, detail: String) -> Unit,
+    onSave: (name: String, kcal: Int, detail: String, slot: MealSlot) -> Unit,
 ) {
     val ctx = LocalContext.current
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
@@ -269,10 +537,7 @@ fun PhotoSheet(
         pendingUri = uri
         camera.launch(uri)
     }
-    // Abre la cámara directo al entrar: un toque menos.
-    LaunchedEffect(Unit) {
-        if (state is PhotoState.Idle && usedToday < AiRepository.DAILY_LIMIT) openCamera()
-    }
+    val canUse = usedToday < AiRepository.DAILY_LIMIT
 
     Column(Modifier.verticalScroll(rememberScrollState())) {
         Text("Foto con IA 📸", style = MaterialTheme.typography.headlineSmall)
@@ -284,13 +549,19 @@ fun PhotoSheet(
         Spacer(Modifier.height(16.dp))
         when (state) {
             PhotoState.Idle -> {
+                // Las dos opciones a la vista desde el principio: cámara o galería.
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    BouncyButton("Sacar foto", { openCamera() }, Modifier.weight(1f), emoji = "📷",
-                        enabled = usedToday < AiRepository.DAILY_LIMIT)
-                    BouncyButton("Galería", {
+                    PhotoOption("📷", "Tomar foto", "Con la cámara", OsitoColors.Pink, canUse, Modifier.weight(1f)) {
+                        Haptics.tick(ctx); openCamera()
+                    }
+                    PhotoOption("🖼️", "Abrir galería", "Una foto que ya tenés", OsitoColors.Purple, canUse, Modifier.weight(1f)) {
+                        Haptics.tick(ctx)
                         gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    }, Modifier.weight(1f), emoji = "🖼️", color = OsitoColors.Purple,
-                        enabled = usedToday < AiRepository.DAILY_LIMIT)
+                    }
+                }
+                if (!canUse) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("Llegaste al límite de fotos de hoy. Mañana más 📸", style = MaterialTheme.typography.bodyMedium)
                 }
             }
             PhotoState.Analyzing -> Analyzing()
@@ -299,8 +570,38 @@ fun PhotoSheet(
                 Spacer(Modifier.height(12.dp))
                 BouncyButton("Probar de nuevo", onReset, Modifier.fillMaxWidth())
             }
-            is PhotoState.Result -> EditableResult(state, onSave, onRetry = onReset)
+            is PhotoState.Result -> EditableResult(state, initialSlot, onSave, onRetry = onReset)
         }
+    }
+}
+
+@Composable
+private fun PhotoOption(
+    emoji: String,
+    title: String,
+    subtitle: String,
+    color: Color,
+    enabled: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier
+            .clip(MaterialTheme.shapes.large)
+            .background(color.copy(alpha = if (enabled) 0.18f else 0.06f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 22.dp, horizontal = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(emoji, fontSize = 40.sp)
+        Spacer(Modifier.height(8.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, color = color)
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -334,12 +635,14 @@ private fun Analyzing() {
 @Composable
 private fun EditableResult(
     state: PhotoState.Result,
-    onSave: (name: String, kcal: Int, detail: String) -> Unit,
+    initialSlot: MealSlot,
+    onSave: (name: String, kcal: Int, detail: String, slot: MealSlot) -> Unit,
     onRetry: () -> Unit,
 ) {
     val items = remember(state) {
         mutableStateListOf<AiFood>().apply { addAll(state.result.foods) }
     }
+    var slot by rememberSaveable { mutableStateOf(initialSlot) }
     val total = items.sumOf { it.kcal }
     val confColor = when (state.result.confidence) {
         "alta" -> OsitoColors.Good
@@ -378,6 +681,10 @@ private fun EditableResult(
     TextButton(onClick = { items.add(AiFood("", "", 0)) }) { Text("+ Agregar alimento") }
     Spacer(Modifier.height(6.dp))
     Text("Total: $total kcal", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+    Spacer(Modifier.height(10.dp))
+    Text("¿En qué comida va?", style = MaterialTheme.typography.labelLarge)
+    Spacer(Modifier.height(6.dp))
+    SlotPicker(slot) { slot = it }
     Spacer(Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         BouncyButton("Otra foto", onRetry, Modifier.weight(1f), color = MaterialTheme.colorScheme.surfaceVariant,
@@ -388,7 +695,7 @@ private fun EditableResult(
                 val valid = items.filter { it.name.isNotBlank() }
                 val name = valid.joinToString(", ") { it.name }.take(80).ifBlank { "Comida (foto)" }
                 val detail = "📸 " + valid.joinToString(" · ") { "${it.name} ${it.kcal}" }
-                onSave(name, total, detail)
+                onSave(name, total, detail, slot)
             },
             modifier = Modifier.weight(1f),
             enabled = total > 0,

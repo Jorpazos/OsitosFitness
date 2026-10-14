@@ -192,6 +192,25 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // Historias de 24 h: solo las ven los 2 del dúo. Cada uno sube y borra las suyas;
+      // el otro solo puede marcarlas como vistas o reaccionar (con su propia entrada).
+      match /stories/{storyId} {
+        allow read: if isMember();
+        allow create: if isMember()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.ts is int
+          && request.resource.data.ts < request.time.toMillis() + 600000
+          && request.resource.data.image is string
+          && request.resource.data.image.size() < 900000
+          && request.resource.data.viewedBy == {}
+          && request.resource.data.reactions == {};
+        allow update: if isMember()
+          && onlyChanges(['viewedBy', 'reactions'])
+          && request.resource.data.viewedBy.diff(resource.data.viewedBy).affectedKeys().hasOnly([request.auth.uid])
+          && request.resource.data.reactions.diff(resource.data.reactions).affectedKeys().hasOnly([request.auth.uid]);
+        allow delete: if isMember() && resource.data.uid == request.auth.uid;
+      }
+
       // Contador de fotos de IA: solo lo toca la Cloud Function (Admin SDK).
       match /aiUsage/{id} {
         allow read, write: if false;

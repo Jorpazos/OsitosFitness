@@ -17,6 +17,8 @@ data class DayStats(
     val kcalOut: Int = 0,
     val goalKcal: Int = 2000,
     val measured: Boolean = false,
+    /** Subió al menos una historia ese día (para la racha de historias). */
+    val story: Boolean = false,
 ) {
     val epochDay: Long get() = Dates.epochDay(dayKey)
 }
@@ -31,6 +33,7 @@ object Xp {
     const val MAX_WATER = 8
     const val GOAL_MET = 30
     const val MEASURED = 20
+    const val STORY = 10
     const val DAY_DONE_MIN_XP = 40
 
     /** La meta de kcal se cumple si registró al menos 2 comidas y quedó en rango (el ejercicio suma margen). */
@@ -44,7 +47,8 @@ object Xp {
             (if (d.weighed) WEIGH_IN else 0) +
             minOf(d.water, MAX_WATER) * PER_WATER +
             (if (goalMet(d)) GOAL_MET else 0) +
-            (if (d.measured) MEASURED else 0)
+            (if (d.measured) MEASURED else 0) +
+            (if (d.story) STORY else 0)
 
     /** "Día cumplido": registró al menos una comida y juntó 40 XP. */
     fun dayDone(d: DayStats): Boolean = d.meals >= 1 && forDay(d) >= DAY_DONE_MIN_XP
@@ -56,6 +60,7 @@ object Xp {
         "💧 Tomar un vaso de agua" to "+$PER_WATER XP (hasta $MAX_WATER por día)",
         "🎯 Cumplir la meta de kcal" to "+$GOAL_MET XP",
         "📏 Tomarte las medidas" to "+$MEASURED XP",
+        "📸 Subir la historia del día" to "+$STORY XP",
         "🗒️ Misiones del día" to "+${Games.QUEST_XP} XP cada una",
         "⚡ Ganar el duelo relámpago" to "+${Games.FLASH_XP} XP",
         "✅ Día cumplido" to "1 comida + $DAY_DONE_MIN_XP XP → suma a la racha",
@@ -178,6 +183,9 @@ data class AchievementContext(
     val flashWins: Int = 0,
     val bingoLines: Int = 0,
     val oseraLevel: Int = 1,
+    val storyDays: Int = 0,
+    val bestStoryStreak: Int = 0,
+    val fullDiaryDays: Int = 0,
 )
 
 data class Achievement(
@@ -216,6 +224,9 @@ object Achievements {
         Achievement("bingo_1", "¡Bingo!", "Completaron su primera línea de bingo", "🎱") { it.bingoLines >= 1 },
         Achievement("osera_3", "Fogón encendido", "La Osera llegó al nivel 3", "🔥") { it.oseraLevel >= 3 },
         Achievement("osera_6", "Casa propia", "La Osera llegó al nivel 6", "🏡") { it.oseraLevel >= 6 },
+        Achievement("historia_1", "¡Sonreí!", "Subiste tu primera historia", "📸") { it.storyDays >= 1 },
+        Achievement("historias_7", "Fuego compartido", "Racha de historias de 7 días", "🔥") { it.bestStoryStreak >= 7 },
+        Achievement("diario_completo", "Diario completo", "Registraste las 4 comidas en un día", "📒") { it.fullDiaryDays >= 1 },
     )
 
     fun byId(id: String) = all.firstOrNull { it.id == id }

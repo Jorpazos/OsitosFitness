@@ -23,6 +23,9 @@ enum class GoalType(val label: String, val emoji: String, val detail: String) {
 
 data class BmiCategory(val label: String, val emoji: String)
 
+/** Próximo escalón de IMC: a qué categoría pasás y cuántos kg faltan (bajando o subiendo). */
+data class BmiStep(val next: BmiCategory, val kg: Double, val gain: Boolean)
+
 data class Measures(
     val waistCm: Double? = null,
     val hipCm: Double? = null,
@@ -69,6 +72,33 @@ object HealthCalculator {
         bmi < 40.0 -> BmiCategory("Obesidad II", "🔴")
         else -> BmiCategory("Obesidad III", "🔴")
     }
+
+    /** Límites entre categorías de IMC (OMS). */
+    private val BMI_LIMITS = listOf(18.5, 25.0, 30.0, 35.0, 40.0)
+
+    /**
+     * Cuánto falta para pasar a la categoría de IMC siguiente (hacia el rango saludable).
+     * Ej.: con IMC 41 → cuántos kg bajar para pasar a "Obesidad II". null si ya está en rango saludable.
+     */
+    fun nextBmiStep(weightKg: Double, heightCm: Double): BmiStep? {
+        val bmi = bmi(weightKg, heightCm)
+        return when {
+            bmi < HEALTHY_BMI_MIN -> {
+                val target = weightForBmi(HEALTHY_BMI_MIN, heightCm)
+                BmiStep(bmiCategory(HEALTHY_BMI_MIN), roundUp(target - weightKg), gain = true)
+            }
+            bmi < 25.0 -> null
+            else -> {
+                // El límite de abajo de la categoría actual: hay que quedar por debajo.
+                val limit = BMI_LIMITS.last { it <= bmi }
+                val target = weightForBmi(limit, heightCm)
+                BmiStep(bmiCategory(limit - 0.01), roundUp(weightKg - target), gain = false)
+            }
+        }
+    }
+
+    /** Redondea hacia arriba a 0,1 kg (y un pelito más, para cruzar el límite). */
+    private fun roundUp(kg: Double): Double = (ceil((kg + 0.001) * 10.0) / 10.0).coerceAtLeast(0.1)
 
     fun weightForBmi(bmi: Double, heightCm: Double): Double = bmi * (heightCm / 100.0).pow(2)
 

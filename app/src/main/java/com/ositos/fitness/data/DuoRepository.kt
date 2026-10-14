@@ -13,6 +13,7 @@ import com.google.firebase.firestore.firestore
 import com.google.firebase.messaging.messaging
 import com.ositos.fitness.domain.DayStats
 import com.ositos.fitness.domain.Dates
+import com.ositos.fitness.domain.MealSlot
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -32,8 +33,11 @@ data class Account(
     val isSolo: Boolean get() = duoId != null && duoId == soloDuoId
 }
 
-/** Lo que se ve al buscar un PIN. */
-data class PinInfo(val pin: String, val uid: String, val name: String, val duoId: String?)
+/**
+ * Lo que se sabe al buscar un PIN: solo que existe y está libre. El nombre de la otra
+ * persona recién se ve cuando aceptás el emparejamiento (privacidad).
+ */
+data class PinInfo(val pin: String, val uid: String, val duoId: String?)
 
 class PairException(message: String) : Exception(message)
 
@@ -65,6 +69,7 @@ class DuoRepository(
     private fun weeks() = duoRef.collection("weeks")
     private fun pokes() = duoRef.collection("pokes")
     private fun measures() = duoRef.collection("measures")
+    private fun stories() = duoRef.collection("stories")
     private fun users() = db.collection("users")
     private fun pins() = db.collection("pins")
 
@@ -120,7 +125,8 @@ class DuoRepository(
                             "email" to auth.currentUser?.email, "createdAt" to System.currentTimeMillis(),
                         ),
                     )
-                    tx.set(pins().document(pin), mapOf("uid" to me, "name" to name, "duoId" to null))
+                    // El PIN no guarda el nombre: así nadie lo ve antes de aceptar el emparejamiento.
+                    tx.set(pins().document(pin), mapOf("uid" to me, "duoId" to null))
                     true
                 }.await()
                 if (created) {
@@ -130,6 +136,8 @@ class DuoRepository(
             }
         }
         val acc = account ?: error("No pude generar tu PIN, probá de nuevo")
+        // Cuentas viejas: el PIN tenía el nombre guardado. Se borra (privacidad al emparejar).
+        runCatching { pins().document(acc.pin).update("name", FieldValue.delete()) }
         if (acc.duoId != null) return acc
 
         // Migración: ¿estaba en el dúo único de la versión anterior?
@@ -160,9 +168,9 @@ class DuoRepository(
         if (pin.length != PIN_LENGTH) throw PairException("El PIN tiene $PIN_LENGTH caracteres")
         val d = pins().document(pin).get().await()
         if (!d.exists()) throw PairException("No encontramos ese PIN. Revisalo con tu compañero/a 🔍")
-        val info = PinInfo(pin, d.getString("uid") ?: "", d.getString("name") ?: "Alguien", d.getString("duoId"))
+        val info = PinInfo(pin, d.getString("uid") ?: "", d.getString("duoId"))
         if (info.uid == uid) throw PairException("¡Ese es tu propio PIN! 😅 Poné el de tu compañero/a")
-        if (info.duoId != null) throw PairException("${info.name} ya está en un dúo")
+        if (info.duoId != null) throw PairException("Ese código ya está en uso en otro dúo")
         return info
     }
 
@@ -171,9 +179,10 @@ class DuoRepository(
 
     /**
      * Arma el dúo con la persona del PIN. Si ya habían sido dúo antes, lo reactiva con todo su historial.
-     * Los dos quedan emparejados al instante.
+     * Los dos quedan emparejados al instante. Devuelve el id del dúo y el nombre del otro
+     * (que recién ahora, ya emparejados, se puede leer).
      */
-    suspend fun pairWith(me: Account, partnerPin: String, kind: DuoKind): String {
+    suspend fun pairWith(me: Account, partnerPin: String, kind: DuoKind): Pair<String, String> {
         val pinInfo = pins().document(partnerPin).get().await()
         val other = pinInfo.getString("uid") ?: throw PairException("No encontramos ese PIN")
         // ¿Eran el dúo de la primera versión de la app? Entonces recuperan ese.
@@ -212,7 +221,8 @@ class DuoRepository(
             tx.update(pins().document(partnerPin), "duoId", targetId)
             null
         }.await()
-        return targetId
+        val partnerName = runCatching { users().document(other).get().await().getString("name") }.getOrNull()
+        return targetId to partnerName.orEmpty().ifBlank { "tu compa" }
     }
 
     /**
@@ -402,6 +412,7 @@ class DuoRepository(
         kcal: Int = 0,
         weightKg: Double? = null,
         dayKey: String = Dates.todayKey(),
+        slot: MealSlot? = null,
     ): Map<String, Any?> = mapOf(
         "uid" to uid,
         "type" to type,
@@ -413,6 +424,7 @@ class DuoRepository(
         "kcal" to kcal,
         "weightKg" to weightKg,
         "reactions" to emptyMap<String, String>(),
+        "slot" to slot?.name,
     )
 
     private fun dayBase(uid: String, dayKey: String, goalKcal: Int) = mapOf(
@@ -421,19 +433,26 @@ class DuoRepository(
         "goalKcal" to goalKcal,
     )
 
-    suspend fun addMeal(name: String, kcal: Int, detail: String, emoji: String, goalKcal: Int) {
+    /**
+     * Agrega un alimento a una comida del día. [newMeal] = es lo primero que se carga en esa
+     * comida: solo entonces suma al contador de comidas (2 huevos en el desayuno = 1 comida).
+     */
+    suspend fun addMeal(
+        name: String,
+        kcal: Int,
+        detail: String,
+        emoji: String,
+        goalKcal: Int,
+        slot: MealSlot,
+        newMeal: Boolean,
+    ) {
         val me = requireUid()
         val day = Dates.todayKey()
         val batch = db.batch()
-        batch.set(
-            dayRef(me, day),
-            dayBase(me, day, goalKcal) + mapOf(
-                "meals" to FieldValue.increment(1),
-                "kcalIn" to FieldValue.increment(kcal.toLong()),
-            ),
-            SetOptions.merge(),
-        )
-        batch.set(logs().document(), logMap(me, "MEAL", name, detail, emoji, kcal = kcal))
+        val counters = mutableMapOf<String, Any>("kcalIn" to FieldValue.increment(kcal.toLong()))
+        if (newMeal) counters["meals"] = FieldValue.increment(1)
+        batch.set(dayRef(me, day), dayBase(me, day, goalKcal) + counters, SetOptions.merge())
+        batch.set(logs().document(), logMap(me, "MEAL", name, detail, emoji, kcal = kcal, slot = slot))
         batch.commit().await()
     }
 
@@ -516,7 +535,8 @@ class DuoRepository(
         ).await()
     }
 
-    suspend fun deleteLog(entry: LogEntry) {
+    /** Borra un registro propio. [lastOfMeal]: era lo último de esa comida (se descuenta la comida). */
+    suspend fun deleteLog(entry: LogEntry, lastOfMeal: Boolean = true) {
         val me = requireUid()
         if (entry.uid != me) return
         val batch = db.batch()
@@ -524,7 +544,10 @@ class DuoRepository(
         when (entry.type) {
             LogType.MEAL -> batch.set(
                 dayRef(me, entry.dayKey),
-                mapOf("meals" to FieldValue.increment(-1), "kcalIn" to FieldValue.increment(-entry.kcal.toLong())),
+                buildMap<String, Any> {
+                    put("kcalIn", FieldValue.increment(-entry.kcal.toLong()))
+                    if (lastOfMeal) put("meals", FieldValue.increment(-1))
+                },
                 SetOptions.merge(),
             )
             LogType.EXERCISE -> batch.set(
@@ -545,6 +568,71 @@ class DuoRepository(
         val me = requireUid()
         val value: Any = emoji ?: FieldValue.delete()
         logs().document(logId).update("reactions.$me", value).await()
+    }
+
+    // ---------- Historias (24 h, solo para los dos del dúo) ----------
+
+    /** Historias de las últimas 24 h, de las más viejas a las más nuevas. */
+    fun storiesFlow(): Flow<List<Story>> = callbackFlow {
+        val cutoff = System.currentTimeMillis() - Story.TTL_MS
+        val reg = stories().whereGreaterThan("ts", cutoff)
+            .addSnapshotListener { s, e ->
+                if (e != null) { close(e); return@addSnapshotListener }
+                trySend(s?.documents?.mapNotNull { Story.from(it) }?.sortedBy { it.ts } ?: emptyList())
+            }
+        awaitClose { reg.remove() }
+    }
+
+    /** Sube la historia y marca el día (para la racha de historias y el XP). */
+    suspend fun postStory(imageBase64: String, caption: String, goalKcal: Int) {
+        val me = requireUid()
+        val day = Dates.todayKey()
+        val batch = db.batch()
+        batch.set(
+            stories().document(),
+            mapOf(
+                "uid" to me,
+                "ts" to System.currentTimeMillis(),
+                "dayKey" to day,
+                "image" to imageBase64,
+                "caption" to caption,
+                "viewedBy" to emptyMap<String, Long>(),
+                "reactions" to emptyMap<String, String>(),
+            ),
+        )
+        batch.set(dayRef(me, day), dayBase(me, day, goalKcal) + mapOf("story" to true), SetOptions.merge())
+        batch.commit().await()
+    }
+
+    suspend fun markStoryViewed(id: String) {
+        val me = requireUid()
+        stories().document(id).update("viewedBy.$me", System.currentTimeMillis()).await()
+    }
+
+    suspend fun reactStory(id: String, emoji: String?) {
+        val me = requireUid()
+        stories().document(id).update("reactions.$me", emoji ?: FieldValue.delete()).await()
+    }
+
+    suspend fun deleteStory(id: String) {
+        stories().document(id).delete().await()
+    }
+
+    /** Borra mis historias vencidas (las del otro las borra su dueño). */
+    suspend fun cleanupExpiredStories() {
+        val me = uid ?: return
+        val cutoff = System.currentTimeMillis() - Story.TTL_MS
+        stories().whereLessThan("ts", cutoff).get().await().documents
+            .filter { it.getString("uid") == me }
+            .forEach { runCatching { it.reference.delete().await() } }
+    }
+
+    /** Para el trabajo en segundo plano: historias del otro subidas después de [sinceTs]. */
+    suspend fun partnerStoriesSince(sinceTs: Long): List<Story> {
+        val me = uid ?: return emptyList()
+        return stories().whereGreaterThan("ts", sinceTs).get().await().documents
+            .mapNotNull { Story.from(it) }
+            .filter { it.uid != me }
     }
 
     // ---------- Pinchazos ----------

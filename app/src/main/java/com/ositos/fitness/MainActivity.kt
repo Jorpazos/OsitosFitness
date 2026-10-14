@@ -94,7 +94,9 @@ class MainActivity : ComponentActivity() {
                                 account = s.account,
                                 state = pairState,
                                 onSearch = sessionVm::searchPin,
-                                onConfirm = { sessionVm.confirmPair(it) },
+                                onConfirm = { kind ->
+                                    sessionVm.confirmPair(kind) { name -> toast("💞 ¡Listo! Ahora son dúo con $name") }
+                                },
                                 onReset = sessionVm::resetPair,
                                 onSignOut = { sessionVm.signOut() },
                                 canGoBack = s.canGoBack,
@@ -118,7 +120,7 @@ class MainActivity : ComponentActivity() {
                             val duoVm: DuoViewModel = viewModel(
                                 key = "duo_${s.uid}_${s.duoId}",
                                 factory = viewModelFactory {
-                                    initializer { DuoViewModel(container.repo, container.ai, s.uid) }
+                                    initializer { DuoViewModel(container.repo, container.ai, s.uid, app) }
                                 },
                             )
                             MainScaffold(

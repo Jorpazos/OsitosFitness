@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ositos.fitness.data.BodyPart
 import com.ositos.fitness.data.MeasureEntry
 import com.ositos.fitness.domain.Dates
@@ -292,11 +293,24 @@ private fun Sparkline(values: List<Double>, color: Color) {
 private fun PartnerSummary(p: PersonSummary) {
     GameCard(accent = Color(p.profile.color)) {
         if (p.measures.size < 2) {
-            Text(
-                if (p.measures.isEmpty()) "Todavía no se tomó medidas. ¡Pasale este apartado! 📏"
-                else "Ya tiene su primera medición. En una o dos semanas se va a ver el avance.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            // Solo informativo (no es un botón): muestra en qué anda tu compa.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (p.measures.isEmpty()) "⏳" else "📏", fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        if (p.measures.isEmpty()) "Pendiente de realización por ${p.name}"
+                        else "${p.name} ya tiene su primera medición",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        if (p.measures.isEmpty()) "Cuando se tome las medidas, vas a ver su avance acá."
+                        else "En una o dos semanas se va a ver el avance.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             return@GameCard
         }
         BodyPart.entries.forEach { part ->
