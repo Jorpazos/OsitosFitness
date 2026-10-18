@@ -80,6 +80,8 @@ data class DuoState(
     val bestStoryStreak: Int = 0,
     /** La racha de historias venía viva y hoy todavía falta alguna. */
     val storyStreakAtRisk: Boolean = false,
+    /** Ya llegaron los días y las semanas de Firestore (antes, el XP y los niveles dan 0). */
+    val dataReady: Boolean = false,
 ) {
     val hasPartner get() = partner != null
 

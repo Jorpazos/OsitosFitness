@@ -285,6 +285,19 @@ private fun MainTabs(
         // "+10 XP" flotante
         XpPopup(xpPopup, xpKey)
         ConfettiOverlay(confetti)
+
+        // Visor de historias a pantalla completa, por encima de todo (barra de abajo incluida).
+        storyViewer?.let { uid ->
+            StoryViewer(
+                s = s,
+                uid = uid,
+                stories = stories,
+                onViewed = vm::markStoryViewed,
+                onReact = vm::reactStory,
+                onDelete = vm::deleteStory,
+                onClose = { storyViewer = null },
+            )
+        }
     }
 
     LogSheetHost(
@@ -335,17 +348,6 @@ private fun MainTabs(
             partnerName = s.partner?.name,
             onDismiss = { storyAdd = false },
             onPublish = { uri, caption -> vm.postStory(uri, caption); storyAdd = false },
-        )
-    }
-    storyViewer?.let { uid ->
-        StoryViewer(
-            s = s,
-            uid = uid,
-            stories = stories,
-            onViewed = vm::markStoryViewed,
-            onReact = vm::reactStory,
-            onDelete = vm::deleteStory,
-            onClose = { storyViewer = null },
         )
     }
 

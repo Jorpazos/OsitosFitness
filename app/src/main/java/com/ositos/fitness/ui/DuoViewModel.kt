@@ -26,6 +26,7 @@ import com.ositos.fitness.domain.OsitoChef
 import com.ositos.fitness.domain.Xp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -80,15 +82,22 @@ class DuoViewModel(
     /** Comidas del día que ya sumaron al contador (por si se cargan dos cosas muy rápido). */
     private val countedMeals = mutableSetOf<String>()
 
-    private var lastLevel: Int? = null
+    /**
+     * Último nivel ya festejado, guardado en el celu (por persona y por dúo). Así "¡Subiste de
+     * nivel!" sale una sola vez por nivel, y no cada vez que se abre la app.
+     */
+    private val prefs = app.getSharedPreferences("ositos", Context.MODE_PRIVATE)
+    private val levelKey = "level_seen_${myUid}_${repo.duoId ?: "-"}"
     private val unlocking = mutableSetOf<String>()
     private val closingWeeks = mutableSetOf<String>()
 
     init {
+        // Días y semanas arrancan en null = "todavía no llegaron". Mientras tanto el XP da 0
+        // (nivel 1) y no hay que festejar ni cerrar duelos con datos a medias.
         val base = combine(
             repo.duoFlow().onStart { emit(null) },
             repo.profilesFlow().onStart { emit(emptyMap()) },
-            repo.daysFlow().onStart { emit(emptyList()) },
+            repo.daysFlow().nullUntilLoaded(),
         ) { duo, profiles, days -> Triple(duo, profiles, days) }
 
         viewModelScope.launch {
@@ -96,10 +105,11 @@ class DuoViewModel(
                 base,
                 repo.weightsFlow().onStart { emit(emptyList()) },
                 repo.logsFlow().onStart { emit(emptyList()) },
-                repo.allWeeksFlow().onStart { emit(emptyList()) },
+                repo.allWeeksFlow().nullUntilLoaded(),
                 repo.measuresFlow().onStart { emit(emptyList()) },
             ) { (duo, profiles, days), weights, logs, weeks, measures ->
-                Summaries.build(myUid, duo, profiles, days, weights, logs, weeks, measures)
+                Summaries.build(myUid, duo, profiles, days.orEmpty(), weights, logs, weeks.orEmpty(), measures)
+                    .copy(dataReady = days != null && weeks != null)
             }
                 .catch { _events.tryEmit(UiEvent.Toast("Error de conexión: ${it.message}")) }
                 .collect { s ->
@@ -125,13 +135,14 @@ class DuoViewModel(
         }
     }
 
+    private fun <T> Flow<List<T>>.nullUntilLoaded(): Flow<List<T>?> =
+        map<List<T>, List<T>?> { it }.onStart { emit(null) }
+
     private fun onNewState(s: DuoState) {
         val me = s.me ?: return
+        if (!s.dataReady) return
 
-        // Subida de nivel
-        val lvl = me.level.number
-        lastLevel?.let { prev -> if (lvl > prev) _events.tryEmit(UiEvent.LevelUp(me.level)) }
-        lastLevel = lvl
+        checkLevelUp(me)
 
         // Logros
         val ctx = Summaries.achievementContext(me, s, s.duo)
@@ -150,6 +161,20 @@ class DuoViewModel(
 
         // Cierre de duelos de semanas anteriores
         if (s.partner != null) closePastWeeks(s)
+    }
+
+    /** Festeja la subida de nivel una sola vez (aunque haya pasado con la app cerrada). */
+    private fun checkLevelUp(me: PersonSummary) {
+        val lvl = me.level.number
+        val seen = prefs.getInt(levelKey, 0)
+        when {
+            // Primera vez en este celu/dúo: se toma el nivel actual como punto de partida, sin festejo.
+            seen == 0 -> prefs.edit().putInt(levelKey, lvl).apply()
+            lvl > seen -> {
+                prefs.edit().putInt(levelKey, lvl).apply()
+                _events.tryEmit(UiEvent.LevelUp(me.level))
+            }
+        }
     }
 
     private fun closePastWeeks(s: DuoState) {

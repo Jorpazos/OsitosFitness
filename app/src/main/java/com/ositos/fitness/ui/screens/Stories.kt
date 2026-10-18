@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +19,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,7 +34,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -63,8 +69,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.ositos.fitness.data.Images
 import com.ositos.fitness.data.Story
@@ -224,7 +228,7 @@ private fun newStoryUri(context: Context): Uri {
 }
 
 /** Subir historia: primero elegís cámara o galería (las dos a la vista), después ves la foto y publicás. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun StoryAddSheet(partnerName: String?, onDismiss: () -> Unit, onPublish: (Uri, String) -> Unit) {
     val ctx = LocalContext.current
@@ -243,6 +247,7 @@ fun StoryAddSheet(partnerName: String?, onDismiss: () -> Unit, onPublish: (Uri, 
             Modifier
                 .navigationBarsPadding()
                 .imePadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 16.dp),
         ) {
@@ -275,10 +280,13 @@ fun StoryAddSheet(partnerName: String?, onDismiss: () -> Unit, onPublish: (Uri, 
                         }.getOrNull()
                     }
                 }
+                // Con el teclado abierto (escribiendo el texto) la foto se achica para que
+                // "Publicar" siempre quede a la vista.
+                val keyboardOpen = WindowInsets.isImeVisible
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(340.dp)
+                        .height(if (keyboardOpen) 140.dp else 300.dp)
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color.Black),
                     contentAlignment = Alignment.Center,
@@ -399,147 +407,145 @@ fun StoryViewer(
         if (i < list.lastIndex) index = i + 1 else onClose()
     }
 
-    Dialog(
-        onDismissRequest = onClose,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .pointerInput(story.id, list.size) {
-                    detectTapGestures(
-                        onPress = {
-                            paused = true
-                            tryAwaitRelease()
-                            paused = false
-                        },
-                        onTap = { offset ->
-                            if (offset.x < size.width / 3f) {
-                                index = (i - 1).coerceAtLeast(0)
-                            } else if (i < list.lastIndex) {
-                                index = i + 1
-                            } else {
-                                onClose()
-                            }
-                        },
-                    )
-                },
-        ) {
-            val img = rememberStoryImage(story)
-            if (img == null) {
-                CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
-            } else {
-                Image(img, contentDescription = "Historia", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-            }
-
-            // Arriba: barritas de progreso + quién y cuándo.
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent)))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    list.forEachIndexed { j, _ ->
-                        val f = when {
-                            j < i -> 1f
-                            j == i -> progress.value
-                            else -> 0f
+    // Pantalla completa dentro de la misma app (antes era un diálogo aparte, que en algunos
+    // celus quedaba corrido hacia abajo y cortaba el texto y las reacciones).
+    BackHandler(onBack = onClose)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(story.id, list.size) {
+                detectTapGestures(
+                    onPress = {
+                        paused = true
+                        tryAwaitRelease()
+                        paused = false
+                    },
+                    onTap = { offset ->
+                        if (offset.x < size.width / 3f) {
+                            index = (i - 1).coerceAtLeast(0)
+                        } else if (i < list.lastIndex) {
+                            index = i + 1
+                        } else {
+                            onClose()
                         }
+                    },
+                )
+            },
+    ) {
+        val img = rememberStoryImage(story)
+        if (img == null) {
+            CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
+        } else {
+            Image(img, contentDescription = "Historia", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+        }
+
+        // Arriba: barritas de progreso + quién y cuándo.
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent)))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                list.forEachIndexed { j, _ ->
+                    val f = when {
+                        j < i -> 1f
+                        j == i -> progress.value
+                        else -> 0f
+                    }
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.35f)),
+                    ) {
                         Box(
                             Modifier
-                                .weight(1f)
+                                .fillMaxWidth(f)
                                 .height(3.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(Color.White.copy(alpha = 0.35f)),
-                        ) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth(f)
-                                    .height(3.dp)
-                                    .background(Color.White),
-                            )
-                        }
+                                .background(Color.White),
+                        )
                     }
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(owner?.profile?.avatar ?: "🐻", fontSize = 24.sp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (mine) "Tu historia" else (owner?.name ?: "Tu compa"),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(timeAgo(story.ts), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.75f))
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        "✕",
-                        color = Color.White,
-                        fontSize = 22.sp,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable { onClose() }
-                            .padding(8.dp),
-                    )
                 }
             }
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(owner?.profile?.avatar ?: "🐻", fontSize = 24.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (mine) "Tu historia" else (owner?.name ?: "Tu compa"),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(timeAgo(story.ts), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.75f))
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "✕",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable { onClose() }
+                        .padding(8.dp),
+                )
+            }
+        }
 
-            // Abajo: texto, reacciones (si es del otro) o "visto" y borrar (si es tuya).
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f))))
-                    .navigationBarsPadding()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                if (story.caption.isNotBlank()) {
+        // Abajo: texto, reacciones (si es del otro) o "visto" y borrar (si es tuya).
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f))))
+                .navigationBarsPadding()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (story.caption.isNotBlank()) {
+                Text(
+                    story.caption,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+            if (mine) {
+                val partner = s.partner
+                val partnerUid = partner?.profile?.uid
+                val seen = partnerUid != null && partnerUid in story.viewedBy
+                val reaction = partnerUid?.let { story.reactions[it] }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        story.caption,
+                        when {
+                            partner == null -> "👀 Solo vos (todavía sin dúo)"
+                            seen -> "👀 La vio ${partner.name}" + (reaction?.let { " · $it" } ?: "")
+                            else -> "👀 ${partner.name} todavía no la vio"
+                        },
                         color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.height(12.dp))
-                }
-                if (mine) {
-                    val partner = s.partner
-                    val partnerUid = partner?.profile?.uid
-                    val seen = partnerUid != null && partnerUid in story.viewedBy
-                    val reaction = partnerUid?.let { story.reactions[it] }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            when {
-                                partner == null -> "👀 Solo vos (todavía sin dúo)"
-                                seen -> "👀 La vio ${partner.name}" + (reaction?.let { " · $it" } ?: "")
-                                else -> "👀 ${partner.name} todavía no la vio"
-                            },
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { paused = true; confirmDelete = story }) {
-                            Text("🗑️ Borrar", color = Color.White)
-                        }
+                    TextButton(onClick = { paused = true; confirmDelete = story }) {
+                        Text("🗑️ Borrar", color = Color.White)
                     }
-                } else {
-                    val myReaction = story.reactions[s.myUid]
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        storyReactions.forEach { e ->
-                            Box(
-                                Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(if (e == myReaction) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.12f))
-                                    .clickable { onReact(story, e) },
-                                contentAlignment = Alignment.Center,
-                            ) { Text(e, fontSize = 22.sp) }
-                        }
+                }
+            } else {
+                val myReaction = story.reactions[s.myUid]
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    storyReactions.forEach { e ->
+                        Box(
+                            Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(if (e == myReaction) Color.White.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.12f))
+                                .clickable { onReact(story, e) },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(e, fontSize = 22.sp) }
                     }
                 }
             }
