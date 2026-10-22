@@ -49,6 +49,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -93,7 +103,11 @@ import com.ositos.fitness.ui.screens.WrappedScreen
 import com.ositos.fitness.ui.theme.OsitoColors
 import com.ositos.fitness.data.Account
 import com.ositos.fitness.data.LogType
+import com.ositos.fitness.domain.Dates
 import com.ositos.fitness.domain.MealSlot
+import com.ositos.fitness.notifications.Notifications
+import com.ositos.fitness.ui.screens.dayTitle
+import com.ositos.fitness.ui.screens.isEditableDay
 import kotlinx.coroutines.delay
 
 private enum class Tab(val label: String, val icon: ImageVector) {
@@ -168,6 +182,20 @@ private fun MainTabs(
     var mealSlot by remember { mutableStateOf(MealSlot.now()) }
     var storyAdd by remember { mutableStateOf(false) }
     var storyViewer by remember { mutableStateOf<String?>(null) }
+    var pokeDialog by remember { mutableStateOf(false) }
+    // Día que se mira en el Inicio, y día al que va lo que se carga desde las hojas.
+    var viewDay by rememberSaveable { mutableStateOf(Dates.todayKey()) }
+    var sheetDay by remember { mutableStateOf(Dates.todayKey()) }
+    val viewLogs by remember(viewDay) { vm.logsForDay(viewDay) }.collectAsStateWithLifecycle(emptyList())
+    // Avisos que bajan desde arriba (logros, pinchazos): no frenan lo que estás haciendo.
+    var banner by remember { mutableStateOf<Banner?>(null) }
+    val banners = remember { ArrayDeque<Banner>() }
+    fun pushBanner(b: Banner) {
+        if (banner == null) banner = b else banners.addLast(b)
+    }
+    /** ¿Esa comida del día que se está cargando ya tenía algo? */
+    fun slotHasEntries(slot: MealSlot): Boolean? =
+        if (sheetDay == viewDay) viewLogs.any { it.uid == s.myUid && it.type == LogType.MEAL && it.mealSlot == slot } else null
 
     LaunchedEffect(vm) {
         vm.events.collect { e ->
@@ -179,14 +207,35 @@ private fun MainTabs(
                     xpKey++
                 }
                 is UiEvent.AchievementUnlocked -> {
-                    if (celebration == null) celebration = Celebration.Unlock(e.achievement) else queue.addLast(Celebration.Unlock(e.achievement))
+                    Haptics.success(ctx)
+                    confetti++
+                    pushBanner(
+                        Banner(
+                            e.achievement.emoji, "¡Logro desbloqueado! ${e.achievement.name}",
+                            e.achievement.description, OsitoColors.Purple, "Ver", { tab = Tab.GAME },
+                        ),
+                    )
                 }
                 is UiEvent.LevelUp -> {
                     if (celebration == null) celebration = Celebration.LevelUp(e.level) else queue.addLast(Celebration.LevelUp(e.level))
                 }
                 is UiEvent.PokeReceived -> {
-                    Haptics.poke(ctx)
-                    if (celebration == null) celebration = Celebration.Poked(e.fromName, e.message) else queue.addLast(Celebration.Poked(e.fromName, e.message))
+                    if (e.milestone) {
+                        Haptics.success(ctx)
+                        confetti++
+                        pushBanner(Banner("🏆", "¡${e.fromName} logró algo grande!", e.message, OsitoColors.Fire))
+                    } else {
+                        // 3 vibraciones fuertes + notificación con el mensaje + aviso arriba.
+                        Haptics.poke(ctx)
+                        val id = (e.fromName + e.message + System.currentTimeMillis()).hashCode()
+                        Notifications.show(
+                            ctx, id, "📌 ${e.fromName} te pinchó", e.message,
+                            actions = listOf(Notifications.pokeBackAction(ctx, id)),
+                        )
+                        pushBanner(
+                            Banner("📌", "${e.fromName} te pinchó", "“${e.message}”", OsitoColors.Pink, "Responder", { pokeDialog = true }),
+                        )
+                    }
                 }
                 UiEvent.Confetti -> confetti++
             }
@@ -212,7 +261,13 @@ private fun MainTabs(
             floatingActionButton = {
                 val rot by animateFloatAsState(if (sheet != null) 45f else 0f, spring(Spring.DampingRatioMediumBouncy), label = "fab")
                 FloatingActionButton(
-                    onClick = { Haptics.tick(ctx); mealSlot = MealSlot.now(); sheet = Sheet.MENU },
+                    onClick = {
+                        Haptics.tick(ctx)
+                        mealSlot = MealSlot.now()
+                        // Si estás mirando un día de la semana pasada en el Inicio, se carga en ese día.
+                        sheetDay = if (tab == Tab.HOME && isEditableDay(viewDay)) viewDay else Dates.todayKey()
+                        sheet = Sheet.MENU
+                    },
                     containerColor = Color(s.me?.profile?.color ?: 0xFFFF7A45),
                     contentColor = Color.White,
                     shape = RoundedCornerShape(22.dp),
@@ -244,19 +299,29 @@ private fun MainTabs(
                         s, padding,
                         isSolo = account?.isSolo == true,
                         onFindPartner = onFindPartner,
-                        onWater = { vm.addWater(it) },
-                        onPoke = { if (vm.sendPoke()) Haptics.poke(ctx) },
+                        onWater = { vm.addWater(it, viewDay) },
+                        onPoke = { pokeDialog = true },
                         onOpenDuel = { tab = Tab.GAME },
                         onOpenWrapped = onOpenWrapped,
                         stories = stories,
                         storyUploading = storyUploading,
                         onAddStory = { storyAdd = true },
                         onOpenStories = { storyViewer = it },
-                        onAddMeal = { slot -> mealSlot = slot; sheet = Sheet.MEAL },
-                        onDeleteLog = vm::deleteLog,
+                        onAddMeal = { slot -> mealSlot = slot; sheetDay = viewDay; sheet = Sheet.MEAL },
+                        onDeleteLog = { vm.deleteLog(it, viewLogs) },
                         onChefIdea = vm::addChefIdea,
+                        viewDay = viewDay,
+                        dayLogs = viewLogs,
+                        onSelectDay = { viewDay = it },
+                        onAddExercise = { sheetDay = viewDay; sheet = Sheet.EXERCISE },
+                        onOpenAchievements = { tab = Tab.GAME },
                     )
-                    Tab.TIMELINE -> TimelineScreen(s, padding, onReact = vm::react, onDelete = vm::deleteLog)
+                    Tab.TIMELINE -> TimelineScreen(
+                        s, padding,
+                        logsFor = vm::logsForDay,
+                        onReact = vm::react,
+                        onDelete = { e, logs -> vm.deleteLog(e, logs) },
+                    )
                     Tab.GAME -> GameScreen(
                         s, padding,
                         onForfeit = vm::setForfeit,
@@ -286,6 +351,8 @@ private fun MainTabs(
         XpPopup(xpPopup, xpKey)
         ConfettiOverlay(confetti)
 
+        TopBanner(banner) { banner = banners.removeFirstOrNull() }
+
         // Visor de historias a pantalla completa, por encima de todo (barra de abajo incluida).
         storyViewer?.let { uid ->
             StoryViewer(
@@ -302,6 +369,7 @@ private fun MainTabs(
 
     LogSheetHost(
         sheet = sheet,
+        dayLabel = if (sheetDay != Dates.todayKey()) "📅 Cargando en: ${dayTitle(sheetDay)}" else null,
         onDismiss = { sheet = null; vm.resetPhoto() },
         onSelect = {
             if (it == Sheet.MEASURES) {
@@ -316,7 +384,7 @@ private fun MainTabs(
         when (current) {
             Sheet.MEAL -> MealSheet(
                 initialSlot = mealSlot,
-                onAdd = { vm.addMeal(it.name, it.kcal, it.detail, it.emoji, it.slot) },
+                onAdd = { vm.addMeal(it.name, it.kcal, it.detail, it.emoji, it.slot, sheetDay, slotHasEntries(it.slot)) },
                 onDone = { sheet = null },
             )
             Sheet.PHOTO -> PhotoSheet(
@@ -324,16 +392,17 @@ private fun MainTabs(
                 usedToday = vm.aiUsedToday(),
                 initialSlot = mealSlot,
                 onAnalyze = vm::analyzePhoto,
+                onAnalyzeText = vm::analyzeText,
                 onReset = vm::resetPhoto,
                 onSave = { name, kcal, detail, slot ->
-                    vm.addMeal(name, kcal, detail, "📸", slot); vm.resetPhoto(); sheet = null
+                    vm.addMeal(name, kcal, detail, "🤖", slot, sheetDay, slotHasEntries(slot)); vm.resetPhoto(); sheet = null
                 },
             )
             Sheet.EXERCISE -> {
                 val lastActivity = s.logs.firstOrNull { it.uid == s.myUid && it.type == LogType.EXERCISE }
                     ?.let { log -> com.ositos.fitness.domain.Activities.all.firstOrNull { it.name == log.title }?.id }
                 ExerciseSheet(me.profile.weightKg, lastActivity) { name, kcal, detail, emoji ->
-                    vm.addExercise(name, kcal, detail, emoji); sheet = null
+                    vm.addExercise(name, kcal, detail, emoji, sheetDay); sheet = null
                 }
             }
             Sheet.WEIGHT -> WeightSheet(me.weights.lastOrNull()?.kg ?: me.profile.weightKg, Color(me.profile.color)) { kg ->
@@ -341,6 +410,17 @@ private fun MainTabs(
             }
             Sheet.MENU, Sheet.MEASURES -> Unit
         }
+    }
+
+    if (pokeDialog) {
+        PokeDialog(
+            s = s,
+            onDismiss = { pokeDialog = false },
+            onSend = { msg ->
+                if (vm.sendPoke(msg)) Haptics.poke(ctx)
+                pokeDialog = false
+            },
+        )
     }
 
     if (storyAdd) {
@@ -366,7 +446,7 @@ private fun MainTabs(
 
     celebration?.let { c ->
         CelebrationDialog(c, onDismiss = { celebration = queue.removeFirstOrNull() }, onPokeBack = {
-            vm.sendPoke()
+            pokeDialog = true
             celebration = queue.removeFirstOrNull()
         })
     }
@@ -448,5 +528,106 @@ private fun CelebrationDialog(c: Celebration, onDismiss: () -> Unit, onPokeBack:
                 }
             }
         },
+    )
+}
+
+/** Aviso que baja desde arriba unos segundos (logros, pinchazos). No frena lo que estás haciendo. */
+data class Banner(
+    val emoji: String,
+    val title: String,
+    val body: String,
+    val color: Color,
+    val actionLabel: String? = null,
+    val action: (() -> Unit)? = null,
+)
+
+@Composable
+private fun TopBanner(b: Banner?, onDone: () -> Unit) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(b) {
+        if (b != null) {
+            visible = true
+            delay(4_500)
+            visible = false
+            delay(350)
+            onDone()
+        }
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(top = 8.dp, start = 12.dp, end = 12.dp),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        AnimatedVisibility(
+            visible && b != null,
+            enter = slideInVertically { -it } + fadeIn(),
+            exit = slideOutVertically { -it } + fadeOut(),
+        ) {
+            val bb = b ?: return@AnimatedVisibility
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .shadow(10.dp, RoundedCornerShape(22.dp))
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Brush.horizontalGradient(listOf(bb.color, bb.color.copy(alpha = 0.78f))))
+                    .clickable { visible = false }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(bb.emoji, fontSize = 32.sp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(bb.title, style = MaterialTheme.typography.titleSmall, color = Color.White)
+                    Text(bb.body, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.92f), maxLines = 2)
+                }
+                if (bb.actionLabel != null) {
+                    TextButton(onClick = { bb.action?.invoke(); visible = false }) {
+                        Text(bb.actionLabel, color = Color.White, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Pinchazo: escribís el mensaje (o elegís uno de la lista) y listo. Le vibra 3 veces fuerte. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PokeDialog(s: DuoState, onDismiss: () -> Unit, onSend: (String) -> Unit) {
+    val partner = s.partner
+    var msg by remember { mutableStateOf("") }
+    val left = 3 - s.pokesSentToday
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("📌 Pinchar a ${partner?.name ?: "tu compa"}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Le llega una notificación con tu mensaje y el celu le vibra 3 veces. Te quedan $left hoy.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = msg,
+                    onValueChange = { msg = it.take(120) },
+                    placeholder = { Text("Escribí tu mensaje…") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    (s.duo?.pokeMessages ?: emptyList()).take(6).forEach { m ->
+                        SuggestionChip(onClick = { msg = m }, label = { Text(m, maxLines = 1) })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSend(msg.trim()) }, enabled = msg.isNotBlank() && left > 0 && partner != null) {
+                Text("Enviar 📌", fontWeight = FontWeight.ExtraBold)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }

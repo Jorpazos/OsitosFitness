@@ -46,8 +46,9 @@ class AiRepository(private val context: Context) {
 
 
         private const val SYSTEM_PROMPT =
-            "Sos un nutricionista que estima calorías a partir de fotos de comida (cocina argentina incluida). " +
-                "Identificá cada alimento visible, estimá la porción y sus kcal aproximadas. " +
+            "Sos un nutricionista que estima calorías a partir de fotos de comida o de una descripción " +
+                "escrita (cocina argentina incluida). " +
+                "Identificá cada alimento (visible o mencionado), estimá la porción y sus kcal aproximadas. " +
                 "Es una estimación orientativa: si dudás, elegí valores típicos y bajá la confianza. " +
                 "Respondé SOLO con JSON con el formato pedido. Si no hay comida en la foto, devolvé " +
                 "alimentos vacío, kcal_total 0 y confianza \"baja\". Nombres en español."
@@ -92,6 +93,17 @@ class AiRepository(private val context: Context) {
         parse(json)
     }
 
+    /**
+     * Igual que la foto, pero describiendo la comida con palabras
+     * ("2 empanadas de carne y una coca chica"). Siempre usa Gemini (gratis).
+     */
+    suspend fun analyzeText(description: String): AiFoodResult = withContext(Dispatchers.IO) {
+        if (usedToday() >= DAILY_LIMIT) throw AiLimitException()
+        val json = callGemini(null, description.trim().take(500))
+        incrementLocal()
+        parse(json)
+    }
+
     private fun ByteArray.toBase64(): String = Base64.encodeToString(this, Base64.NO_WRAP)
 
     /** Reduce a máx. 640 px de lado y JPEG calidad 70, respetando la rotación EXIF. */
@@ -102,7 +114,7 @@ class AiRepository(private val context: Context) {
      * esquema JSON estricto falla, reintenta pidiendo el JSON solo por instrucción.
      * Cada intento tiene un tope de tiempo para que la app nunca quede "analizando" para siempre.
      */
-    private suspend fun callGemini(jpeg: ByteArray): JSONObject {
+    private suspend fun callGemini(jpeg: ByteArray?, description: String? = null): JSONObject {
         // Google va retirando modelos: arrancamos por los actuales y, si responde "usá models/X",
         // agregamos X a la cola automáticamente (así la app se adapta sola sin actualizarla).
         // El "lite" es el más rápido; el flash completo queda de respaldo.
@@ -137,7 +149,10 @@ class AiRepository(private val context: Context) {
                 val response = withTimeout(minOf(60_000L, left)) {
                     model.generateContent(
                         content {
-                            inlineData(jpeg, "image/jpeg")
+                            if (jpeg != null) inlineData(jpeg, "image/jpeg")
+                            if (description != null) {
+                                text("Esto es lo que comí, contado con mis palabras (porciones típicas si no digo cuánto): $description")
+                            }
                             text(
                                 "Estimá las calorías de esta comida. Respondé solo JSON con este formato: " +
                                     "{\"alimentos\":[{\"nombre\":\"\",\"porcion_estimada\":\"\",\"kcal\":0}]," +
@@ -186,7 +201,7 @@ class AiRepository(private val context: Context) {
                 "Gemini está saturado en este momento (pasa a veces con la versión gratis). " +
                     "Probá de nuevo en unos minutos o cargala a mano 🍽️"
             } else {
-                "La IA no pudo analizar la foto. Cargala a mano y mandale este detalle a quien mantiene la app:\n" +
+                "La IA no pudo analizar la comida. Cargala a mano y mandale este detalle a quien mantiene la app:\n" +
                     errors.joinToString("\n")
             },
         )

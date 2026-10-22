@@ -392,6 +392,16 @@ class DuoRepository(
         awaitClose { reg.remove() }
     }
 
+    /** Todo lo registrado un día puntual (de los dos), para ver o completar días pasados. */
+    fun logsOfDayFlow(dayKey: String): Flow<List<LogEntry>> = callbackFlow {
+        val reg = logs().whereEqualTo("dayKey", dayKey)
+            .addSnapshotListener { s, e ->
+                if (e != null) { close(e); return@addSnapshotListener }
+                trySend(s?.documents?.mapNotNull { LogEntry.from(it) }?.sortedByDescending { it.ts } ?: emptyList())
+            }
+        awaitClose { reg.remove() }
+    }
+
     fun logsFlow(limit: Long = 200): Flow<List<LogEntry>> = callbackFlow {
         val reg = logs().orderBy("ts", Query.Direction.DESCENDING).limit(limit)
             .addSnapshotListener { s, e ->
@@ -445,20 +455,19 @@ class DuoRepository(
         goalKcal: Int,
         slot: MealSlot,
         newMeal: Boolean,
+        day: String = Dates.todayKey(),
     ) {
         val me = requireUid()
-        val day = Dates.todayKey()
         val batch = db.batch()
         val counters = mutableMapOf<String, Any>("kcalIn" to FieldValue.increment(kcal.toLong()))
         if (newMeal) counters["meals"] = FieldValue.increment(1)
         batch.set(dayRef(me, day), dayBase(me, day, goalKcal) + counters, SetOptions.merge())
-        batch.set(logs().document(), logMap(me, "MEAL", name, detail, emoji, kcal = kcal, slot = slot))
+        batch.set(logs().document(), logMap(me, "MEAL", name, detail, emoji, kcal = kcal, dayKey = day, slot = slot))
         batch.commit().await()
     }
 
-    suspend fun addExercise(name: String, kcal: Int, detail: String, emoji: String, goalKcal: Int) {
+    suspend fun addExercise(name: String, kcal: Int, detail: String, emoji: String, goalKcal: Int, day: String = Dates.todayKey()) {
         val me = requireUid()
-        val day = Dates.todayKey()
         val batch = db.batch()
         batch.set(
             dayRef(me, day),
@@ -468,7 +477,7 @@ class DuoRepository(
             ),
             SetOptions.merge(),
         )
-        batch.set(logs().document(), logMap(me, "EXERCISE", name, detail, emoji, kcal = kcal))
+        batch.set(logs().document(), logMap(me, "EXERCISE", name, detail, emoji, kcal = kcal, dayKey = day))
         batch.commit().await()
     }
 
@@ -526,9 +535,8 @@ class DuoRepository(
         batch.commit().await()
     }
 
-    suspend fun addWater(delta: Int, goalKcal: Int) {
+    suspend fun addWater(delta: Int, goalKcal: Int, day: String = Dates.todayKey()) {
         val me = requireUid()
-        val day = Dates.todayKey()
         dayRef(me, day).set(
             dayBase(me, day, goalKcal) + mapOf("water" to FieldValue.increment(delta.toLong())),
             SetOptions.merge(),
@@ -674,6 +682,17 @@ class DuoRepository(
         batch.set(logs().document(), logMap(me, "POKE", "Pinchó a $toNickname", message, "📌"))
         batch.set(profiles().document(me), mapOf("pokesSent" to FieldValue.increment(1)), SetOptions.merge())
         batch.commit().await()
+    }
+
+    /** Aviso de logro grande (ej. "llegó al kilo de grasa quemada"): le llega a tu compa como notificación. */
+    suspend fun sendMilestone(to: String, myNickname: String, message: String) {
+        val me = requireUid()
+        pokes().document().set(
+            mapOf(
+                "from" to me, "to" to to, "fromName" to myNickname, "message" to message,
+                "ts" to System.currentTimeMillis(), "delivered" to false, "kind" to "milestone",
+            ),
+        ).await()
     }
 
     // ---------- Semanas (duelo + desafío cooperativo) ----------

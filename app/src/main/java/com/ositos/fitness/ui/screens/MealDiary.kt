@@ -37,6 +37,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ositos.fitness.data.LogEntry
+import com.ositos.fitness.data.LogType
+import com.ositos.fitness.domain.DayStats
+import com.ositos.fitness.domain.Dates
 import com.ositos.fitness.domain.HealthCalculator
 import com.ositos.fitness.domain.MealPlan
 import com.ositos.fitness.domain.MealSlot
@@ -56,14 +59,21 @@ import com.ositos.fitness.ui.theme.OsitoColors
 @Composable
 fun MealDiaryCard(
     s: DuoState,
+    day: DayStats,
+    logs: List<LogEntry>,
+    editable: Boolean,
     onAdd: (MealSlot) -> Unit,
     onDelete: (LogEntry) -> Unit,
     onChefIdea: (OsitoChef.Idea, MealSlot) -> Unit,
+    onAddExercise: () -> Unit = {},
 ) {
     val me = s.me ?: return
-    val budget = me.budget
-    val bySlot = s.mealsOf(me.profile.uid)
-    val eaten = me.today.kcalIn
+    val isToday = day.dayKey == Dates.todayKey()
+    val budget = day.goalKcal + day.kcalOut
+    val mine = logs.filter { it.uid == me.profile.uid }
+    val bySlot = mine.filter { it.type == LogType.MEAL }.sortedBy { it.ts }.groupBy { it.mealSlot }
+    val exercises = mine.filter { it.type == LogType.EXERCISE }.sortedBy { it.ts }
+    val eaten = day.kcalIn
     val left = budget - eaten
     var toDelete by remember { mutableStateOf<LogEntry?>(null) }
     var chef by remember { mutableStateOf(false) }
@@ -73,11 +83,20 @@ fun MealDiaryCard(
 
     GameCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("📒 Diario de hoy", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(
+                if (isToday) "📒 Diario de hoy" else "📒 Diario del día",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
             Pill("$eaten / $budget kcal", if (left < 0) OsitoColors.Bad else OsitoColors.Orange)
         }
         Text(
-            if (left >= 0) "Te quedan $left kcal para hoy" else "Te pasaste ${-left} kcal hoy (mañana se compensa 💪)",
+            when {
+                !isToday && left >= 0 -> "Ese día te sobraron $left kcal"
+                !isToday -> "Ese día te pasaste ${-left} kcal"
+                left >= 0 -> "Te quedan $left kcal para hoy"
+                else -> "Te pasaste ${-left} kcal hoy (mañana se compensa 💪)"
+            },
             style = MaterialTheme.typography.bodySmall,
             color = if (left >= 0) MaterialTheme.colorScheme.onSurfaceVariant else OsitoColors.Bad,
         )
@@ -88,10 +107,13 @@ fun MealDiaryCard(
                 slot = slot,
                 recommended = MealPlan.recommended(slot, budget),
                 entries = bySlot[slot].orEmpty(),
+                editable = editable,
                 onAdd = { onAdd(slot) },
                 onDelete = { toDelete = it },
             )
         }
+        HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.surfaceVariant)
+        ExerciseSection(exercises, day.kcalOut, editable, onAddExercise, onDelete = { toDelete = it })
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -101,8 +123,10 @@ fun MealDiaryCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(8.dp))
-            BouncyButton("Osito Chef", { chef = true }, color = OsitoColors.Purple, emoji = "🎲")
+            if (isToday) {
+                Spacer(Modifier.width(8.dp))
+                BouncyButton("Osito Chef", { chef = true }, color = OsitoColors.Purple, emoji = "🎲")
+            }
         }
     }
 
@@ -110,7 +134,12 @@ fun MealDiaryCard(
         AlertDialog(
             onDismissRequest = { toDelete = null },
             title = { Text("¿Borrar del diario?") },
-            text = { Text("\"${e.title}\" (${e.kcal} kcal) se borra de ${e.mealSlot.label.lowercase()}.") },
+            text = {
+                Text(
+                    if (e.type == LogType.MEAL) "\"${e.title}\" (${e.kcal} kcal) se borra de ${e.mealSlot.label.lowercase()}."
+                    else "\"${e.title}\" (${e.kcal} kcal) se borra del día.",
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { onDelete(e); toDelete = null }) {
                     Text("Borrar", color = MaterialTheme.colorScheme.error)
@@ -134,6 +163,7 @@ private fun SlotSection(
     slot: MealSlot,
     recommended: Int,
     entries: List<LogEntry>,
+    editable: Boolean,
     onAdd: () -> Unit,
     onDelete: (LogEntry) -> Unit,
 ) {
@@ -173,45 +203,97 @@ private fun SlotSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.width(10.dp))
+            if (editable) {
+                Spacer(Modifier.width(10.dp))
+                AddCircle(OsitoColors.Orange) { Haptics.tick(ctx); onAdd() }
+            }
+        }
+        entries.forEach { e -> EntryRow(e, editable) { onDelete(e) } }
+    }
+}
+
+@Composable
+private fun AddCircle(color: Color, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(color)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Text("+", style = MaterialTheme.typography.titleLarge, color = Color.White) }
+}
+
+/** Ejercicios del día, con su "+" para sumar y borrar (como las comidas). */
+@Composable
+private fun ExerciseSection(
+    entries: List<LogEntry>,
+    kcalOut: Int,
+    editable: Boolean,
+    onAdd: () -> Unit,
+    onDelete: (LogEntry) -> Unit,
+) {
+    val ctx = LocalContext.current
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
-                    .size(38.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
-                    .background(OsitoColors.Orange)
-                    .clickable { Haptics.tick(ctx); onAdd() },
+                    .background(OsitoColors.Mint.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center,
-            ) { Text("+", style = MaterialTheme.typography.titleLarge, color = Color.White) }
-        }
-        entries.forEach { e ->
-            Row(
-                Modifier.padding(start = 52.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(e.emoji.ifBlank { "🍽️" }, fontSize = 16.sp)
-                Spacer(Modifier.width(6.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(e.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (e.detail.isNotBlank()) {
-                        Text(
-                            e.detail,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                Text("${e.kcal}", style = MaterialTheme.typography.labelLarge)
-                IconButton(onClick = { onDelete(e) }, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Borrar",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+            ) { Text("💪", fontSize = 22.sp) }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Ejercicio", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (entries.isEmpty()) "Nada todavía · cada kcal que quemás te suma margen"
+                    else "🔥 $kcalOut kcal quemadas",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
+            if (editable) {
+                Spacer(Modifier.width(10.dp))
+                AddCircle(OsitoColors.Mint) { Haptics.tick(ctx); onAdd() }
+            }
+        }
+        entries.forEach { e -> EntryRow(e, editable) { onDelete(e) } }
+    }
+}
+
+@Composable
+private fun EntryRow(e: LogEntry, editable: Boolean, onDelete: () -> Unit) {
+    Row(
+        Modifier.padding(start = 52.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(e.emoji.ifBlank { "🍽️" }, fontSize = 16.sp)
+        Spacer(Modifier.width(6.dp))
+        Column(Modifier.weight(1f)) {
+            Text(e.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (e.detail.isNotBlank()) {
+                Text(
+                    e.detail,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Text("${e.kcal}", style = MaterialTheme.typography.labelLarge)
+        if (editable) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Borrar",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        } else {
+            Spacer(Modifier.width(12.dp))
         }
     }
 }

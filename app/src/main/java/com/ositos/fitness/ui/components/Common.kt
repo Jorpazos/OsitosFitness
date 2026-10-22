@@ -82,7 +82,8 @@ object Haptics {
 
     fun poke(context: Context) = runCatching {
         vibrator(context)?.vibrate(
-            VibrationEffect.createWaveform(longArrayOf(0, 40, 50, 40, 50, 80), intArrayOf(0, 255, 0, 255, 0, 255), -1),
+            // 3 vibraciones fuertes: no hay forma de no darse cuenta 📌
+            VibrationEffect.createWaveform(longArrayOf(0, 400, 200, 400, 200, 400), intArrayOf(0, 255, 0, 255, 0, 255), -1),
         )
     }
 }

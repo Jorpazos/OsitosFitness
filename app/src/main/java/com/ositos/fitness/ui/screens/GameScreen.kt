@@ -177,7 +177,7 @@ fun GameScreen(
         }
         item {
             val who: PersonSummary = s.personOf(achievementsOf) ?: me
-            AchievementsGrid(who)
+            AchievementsGrid(who, s)
         }
 
         val closed = s.weeks.filter { it.closed }.sortedByDescending { it.key }
@@ -256,8 +256,9 @@ private fun ForfeitPicker(s: DuoState, onForfeit: (String) -> Unit, onEdit: () -
 }
 
 @Composable
-private fun AchievementsGrid(p: PersonSummary) {
+private fun AchievementsGrid(p: PersonSummary, s: DuoState) {
     val unlocked = p.profile.achievements
+    val actx = com.ositos.fitness.ui.Summaries.achievementContext(p, s, s.duo)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             "${unlocked.size} de ${Achievements.all.size} desbloqueados",
@@ -289,6 +290,12 @@ private fun AchievementsGrid(p: PersonSummary) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                         )
+                        if (!has) {
+                            // Cuánto falta: dan ganas de completarlo 😏
+                            Spacer(Modifier.height(4.dp))
+                            com.ositos.fitness.ui.components.FillBar(a.progress(actx), OsitoColors.Purple, height = 6.dp)
+                            Text(a.progressLabel(actx), style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }

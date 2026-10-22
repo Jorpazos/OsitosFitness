@@ -92,9 +92,11 @@ class DuoWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, p
 
             // 1) Pinchazos pendientes (respaldo del push).
             repo.undeliveredPokesToMe().forEach { poke ->
-                if (!muted) {
-                    val who = partner?.nickname ?: "Tu compa"
-                    val id = poke.id.hashCode()
+                val who = partner?.nickname ?: "Tu compa"
+                val id = poke.id.hashCode()
+                if (poke.isMilestone) {
+                    Notifications.show(ctx, id, "🏆 ¡$who logró algo grande!", poke.message, Notifications.CHANNEL_REMINDERS)
+                } else if (!muted) {
                     Notifications.show(
                         ctx, id, "📌 $who te pinchó", poke.message,
                         actions = listOf(Notifications.pokeBackAction(ctx, id)),

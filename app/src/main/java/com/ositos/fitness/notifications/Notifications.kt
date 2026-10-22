@@ -7,6 +7,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -15,7 +18,11 @@ import com.ositos.fitness.MainActivity
 import com.ositos.fitness.R
 
 object Notifications {
-    const val CHANNEL_POKES = "pinchazos"
+    /** Canal nuevo (v2): los canales no se pueden cambiar una vez creados y este vibra 3 veces fuerte. */
+    const val CHANNEL_POKES = "pinchazos_v2"
+    private const val OLD_CHANNEL_POKES = "pinchazos"
+    /** 3 vibraciones fuertes. */
+    val POKE_VIBRATION = longArrayOf(0, 400, 200, 400, 200, 400)
     const val CHANNEL_REMINDERS = "recordatorios"
     const val CHANNEL_WATER = "agua"
     const val CHANNEL_STORIES = "historias"
@@ -26,9 +33,14 @@ object Notifications {
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
+        runCatching { nm.deleteNotificationChannel(OLD_CHANNEL_POKES) }
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_POKES, "Pinchazos", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Cuando tu compa te pincha 📌"
+                description = "Cuando tu compa te pincha 📌 (vibra 3 veces)"
+                enableVibration(true)
+                vibrationPattern = POKE_VIBRATION
+                enableLights(true)
+                lightColor = 0xFFFF4F7B.toInt()
             },
         )
         nm.createNotificationChannel(
@@ -68,8 +80,11 @@ object Notifications {
         actions: List<NotificationCompat.Action> = emptyList(),
     ) {
         if (!canNotify(context)) return
+        val color = colorFor(channel)
         val n = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(color)
+            .setLargeIcon(emojiIcon(leadingEmoji(title), color))
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -79,6 +94,36 @@ object Notifications {
             .apply { actions.forEach { addAction(it) } }
             .build()
         runCatching { NotificationManagerCompat.from(context).notify(id, n) }
+    }
+
+    /** Cada tipo de aviso con su color de la app. */
+    private fun colorFor(channel: String): Int = when (channel) {
+        CHANNEL_POKES -> 0xFFFF4F7B
+        CHANNEL_WATER -> 0xFF29B6F6
+        CHANNEL_STORIES -> 0xFF9B5CFF
+        else -> 0xFFFF7A45
+    }.toInt()
+
+    /** El emoji con el que arranca el título ("📌 Jorge te pinchó" → 📌), o un osito. */
+    private fun leadingEmoji(title: String): String {
+        val first = title.trim().substringBefore(' ')
+        return if (first.isEmpty() || first.first().isLetterOrDigit()) "🐻" else first
+    }
+
+    /** Ícono grande: el emoji sobre un círculo del color de la app. */
+    private fun emojiIcon(emoji: String, color: Int): Bitmap {
+        val size = 192
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, bg)
+        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = size * 0.55f
+            textAlign = Paint.Align.CENTER
+        }
+        val y = size / 2f - (text.descent() + text.ascent()) / 2f
+        canvas.drawText(emoji, size / 2f, y, text)
+        return bmp
     }
 
     /** Confirmación cortita y silenciosa (ej.: "💧 ¡Anotado!") que se va sola a los pocos segundos. */

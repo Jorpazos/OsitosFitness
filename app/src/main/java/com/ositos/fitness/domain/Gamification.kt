@@ -186,52 +186,78 @@ data class AchievementContext(
     val storyDays: Int = 0,
     val bestStoryStreak: Int = 0,
     val fullDiaryDays: Int = 0,
+    /** Kilos de grasa estimados por el déficit calórico acumulado (días ya terminados). */
+    val fatKg: Double = 0.0,
 )
 
+/** Un logro: se desbloquea cuando [metric] llega a [target]. Así se puede mostrar cuánto falta. */
 data class Achievement(
     val id: String,
     val name: String,
     val description: String,
     val emoji: String,
-    val check: (AchievementContext) -> Boolean,
-)
+    val target: Double,
+    val metric: (AchievementContext) -> Double,
+) {
+    fun check(ctx: AchievementContext): Boolean = metric(ctx) >= target - 1e-9
+
+    /** Avance de 0 a 1. */
+    fun progress(ctx: AchievementContext): Float = (metric(ctx) / target).toFloat().coerceIn(0f, 1f)
+
+    /** "7 / 10" (o con un decimal si son kilos). */
+    fun progressLabel(ctx: AchievementContext): String {
+        val v = metric(ctx).coerceAtMost(target)
+        return if (target % 1.0 == 0.0 && v % 1.0 == 0.0) "${v.toInt()} / ${target.toInt()}"
+        else "${"%.1f".format(v)} / ${"%.1f".format(target)}"
+    }
+}
 
 object Achievements {
     val all = listOf(
-        Achievement("primer_bocado", "Primer bocado", "Registraste tu primera comida", "🍽️") { it.totalMeals >= 1 },
-        Achievement("primera_semana", "Primera semana", "7 días registrando", "📅") { it.daysLogged >= 7 },
-        Achievement("primer_entreno", "A mover el esqueleto", "Tu primer entrenamiento", "👟") { it.totalWorkouts >= 1 },
-        Achievement("entrenos_10", "10 entrenamientos", "Ya es costumbre, ¿eh?", "💪") { it.totalWorkouts >= 10 },
-        Achievement("entrenos_50", "50 entrenamientos", "Bestia total", "🦾") { it.totalWorkouts >= 50 },
-        Achievement("primer_kilo", "Primer kilo", "1 kg más cerca del objetivo", "⚖️") { it.kgProgress >= 1.0 },
-        Achievement("cinco_kilos", "Cinco kilos", "5 kg de progreso. ¡Aplausos!", "🎉") { it.kgProgress >= 5.0 },
-        Achievement("racha_7", "Racha de 7", "Una semana sin aflojar", "🔥") { it.bestStreak >= 7 },
-        Achievement("racha_30", "Racha de 30", "Un mes entero. Leyenda.", "🌋") { it.bestStreak >= 30 },
-        Achievement("pareja_7", "Dúo dinámico", "Racha del dúo de 7 días", "👫") { it.bestCoupleStreak >= 7 },
-        Achievement("pareja_30", "Inseparables", "Racha del dúo de 30 días", "💞") { it.bestCoupleStreak >= 30 },
-        Achievement("duelo_1", "Primera victoria", "Ganaste un duelo semanal", "🥊") { it.duelsWon >= 1 },
-        Achievement("duelo_5", "Campeón del living", "5 duelos ganados", "👑") { it.duelsWon >= 5 },
-        Achievement("camello", "Camello", "8 vasos de agua en un día", "🐪") { it.maxWaterInADay >= 8 },
-        Achievement("pinchador", "Pinchador serial", "Mandaste 20 pinchazos", "📌") { it.pokesSent >= 20 },
-        Achievement("equilibrista", "Equilibrista", "7 días cumpliendo la meta de kcal", "🎯") { it.goalDays >= 7 },
-        Achievement("balanza", "Amigo de la balanza", "Te pesaste 10 veces", "📉") { it.weighIns >= 10 },
-        Achievement("nivel_5", "Oso con experiencia", "Llegaste al nivel 5", "⭐") { it.level >= 5 },
-        Achievement("coop_1", "Equipo dinamita", "Completaron un desafío cooperativo", "🤝") { it.coopChallengesDone >= 1 },
-        Achievement("medidas_1", "Cinta métrica", "Te tomaste las medidas por primera vez", "📏") { it.measuresCount >= 1 },
-        Achievement("medidas_5", "Detective del progreso", "5 registros de medidas", "🔎") { it.measuresCount >= 5 },
-        Achievement("misiones_10", "Misionero", "10 días con todas las misiones", "🗒️") { it.questDays >= 10 },
-        Achievement("relampago_5", "Rayo veloz", "Ganaste 5 duelos relámpago", "⚡") { it.flashWins >= 5 },
-        Achievement("bingo_1", "¡Bingo!", "Completaron su primera línea de bingo", "🎱") { it.bingoLines >= 1 },
-        Achievement("osera_3", "Fogón encendido", "La Osera llegó al nivel 3", "🔥") { it.oseraLevel >= 3 },
-        Achievement("osera_6", "Casa propia", "La Osera llegó al nivel 6", "🏡") { it.oseraLevel >= 6 },
-        Achievement("historia_1", "¡Sonreí!", "Subiste tu primera historia", "📸") { it.storyDays >= 1 },
-        Achievement("historias_7", "Fuego compartido", "Racha de historias de 7 días", "🔥") { it.bestStoryStreak >= 7 },
-        Achievement("diario_completo", "Diario completo", "Registraste las 4 comidas en un día", "📒") { it.fullDiaryDays >= 1 },
+        Achievement("primer_bocado", "Primer bocado", "Registraste tu primera comida", "🍽️", 1.0) { it.totalMeals.toDouble() },
+        Achievement("primera_semana", "Primera semana", "7 días registrando", "📅", 7.0) { it.daysLogged.toDouble() },
+        Achievement("primer_entreno", "A mover el esqueleto", "Tu primer entrenamiento", "👟", 1.0) { it.totalWorkouts.toDouble() },
+        Achievement("entrenos_10", "10 entrenamientos", "Ya es costumbre, ¿eh?", "💪", 10.0) { it.totalWorkouts.toDouble() },
+        Achievement("entrenos_50", "50 entrenamientos", "Bestia total", "🦾", 50.0) { it.totalWorkouts.toDouble() },
+        Achievement("primer_kilo", "Primer kilo", "1 kg más cerca del objetivo", "⚖️", 1.0) { it.kgProgress.toDouble() },
+        Achievement("cinco_kilos", "Cinco kilos", "5 kg de progreso. ¡Aplausos!", "🎉", 5.0) { it.kgProgress.toDouble() },
+        Achievement("racha_7", "Racha de 7", "Una semana sin aflojar", "🔥", 7.0) { it.bestStreak.toDouble() },
+        Achievement("racha_30", "Racha de 30", "Un mes entero. Leyenda.", "🌋", 30.0) { it.bestStreak.toDouble() },
+        Achievement("pareja_7", "Dúo dinámico", "Racha del dúo de 7 días", "👫", 7.0) { it.bestCoupleStreak.toDouble() },
+        Achievement("pareja_30", "Inseparables", "Racha del dúo de 30 días", "💞", 30.0) { it.bestCoupleStreak.toDouble() },
+        Achievement("duelo_1", "Primera victoria", "Ganaste un duelo semanal", "🥊", 1.0) { it.duelsWon.toDouble() },
+        Achievement("duelo_5", "Campeón del living", "5 duelos ganados", "👑", 5.0) { it.duelsWon.toDouble() },
+        Achievement("camello", "Camello", "8 vasos de agua en un día", "🐪", 8.0) { it.maxWaterInADay.toDouble() },
+        Achievement("pinchador", "Pinchador serial", "Mandaste 20 pinchazos", "📌", 20.0) { it.pokesSent.toDouble() },
+        Achievement("equilibrista", "Equilibrista", "7 días cumpliendo la meta de kcal", "🎯", 7.0) { it.goalDays.toDouble() },
+        Achievement("balanza", "Amigo de la balanza", "Te pesaste 10 veces", "📉", 10.0) { it.weighIns.toDouble() },
+        Achievement("nivel_5", "Oso con experiencia", "Llegaste al nivel 5", "⭐", 5.0) { it.level.toDouble() },
+        Achievement("coop_1", "Equipo dinamita", "Completaron un desafío cooperativo", "🤝", 1.0) { it.coopChallengesDone.toDouble() },
+        Achievement("medidas_1", "Cinta métrica", "Te tomaste las medidas por primera vez", "📏", 1.0) { it.measuresCount.toDouble() },
+        Achievement("medidas_5", "Detective del progreso", "5 registros de medidas", "🔎", 5.0) { it.measuresCount.toDouble() },
+        Achievement("misiones_10", "Misionero", "10 días con todas las misiones", "🗒️", 10.0) { it.questDays.toDouble() },
+        Achievement("relampago_5", "Rayo veloz", "Ganaste 5 duelos relámpago", "⚡", 5.0) { it.flashWins.toDouble() },
+        Achievement("bingo_1", "¡Bingo!", "Completaron su primera línea de bingo", "🎱", 1.0) { it.bingoLines.toDouble() },
+        Achievement("osera_3", "Fogón encendido", "La Osera llegó al nivel 3", "🔥", 3.0) { it.oseraLevel.toDouble() },
+        Achievement("osera_6", "Casa propia", "La Osera llegó al nivel 6", "🏡", 6.0) { it.oseraLevel.toDouble() },
+        Achievement("historia_1", "¡Sonreí!", "Subiste tu primera historia", "📸", 1.0) { it.storyDays.toDouble() },
+        Achievement("historias_7", "Fuego compartido", "Racha de historias de 7 días", "🔥", 7.0) { it.bestStoryStreak.toDouble() },
+        Achievement("diario_completo", "Diario completo", "Registraste las 4 comidas en un día", "📒", 1.0) { it.fullDiaryDays.toDouble() },
+        Achievement("grasa_1", "Primer kilo de grasa", "Tu déficit acumulado llegó a ~1 kg de grasa", "🧈", 1.0) { it.fatKg },
+        Achievement("grasa_3", "Tres kilitos menos", "~3 kg de grasa quemada con déficit", "🔥", 3.0) { it.fatKg },
+        Achievement("grasa_5", "Máquina de quemar", "~5 kg de grasa quemada con déficit", "🌋", 5.0) { it.fatKg },
+        Achievement("grasa_10", "Leyenda del déficit", "~10 kg de grasa quemada", "🏆", 10.0) { it.fatKg },
     )
 
     fun byId(id: String) = all.firstOrNull { it.id == id }
 
     fun unlocked(ctx: AchievementContext): Set<String> = all.filter { it.check(ctx) }.map { it.id }.toSet()
+
+    /** Los próximos logros más cerca de desbloquearse (para tentar a seguir 😏). */
+    fun closest(ctx: AchievementContext, unlocked: Set<String>, n: Int = 3): List<Achievement> =
+        all.filter { it.id !in unlocked && !it.check(ctx) && it.progress(ctx) > 0f }
+            .sortedByDescending { it.progress(ctx) }
+            .take(n)
 }
 
 object Defaults {

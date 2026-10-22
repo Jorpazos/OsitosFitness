@@ -310,7 +310,11 @@ data class Poke(
     val message: String,
     val ts: Long,
     val delivered: Boolean,
+    /** "poke" (pinchazo) o "milestone" (aviso de logro grande del otro). */
+    val kind: String = "poke",
 ) {
+    val isMilestone get() = kind == "milestone"
+
     companion object {
         fun from(d: DocumentSnapshot): Poke? {
             if (!d.exists()) return null
@@ -321,6 +325,7 @@ data class Poke(
                 message = d.getString("message") ?: "",
                 ts = d.getLong("ts") ?: 0,
                 delivered = d.getBoolean("delivered") ?: false,
+                kind = d.getString("kind") ?: "poke",
             )
         }
     }

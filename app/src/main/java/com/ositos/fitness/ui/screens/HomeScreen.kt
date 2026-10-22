@@ -70,9 +70,20 @@ fun HomeScreen(
     onAddMeal: (MealSlot) -> Unit = {},
     onDeleteLog: (LogEntry) -> Unit = {},
     onChefIdea: (OsitoChef.Idea, MealSlot) -> Unit = { _, _ -> },
+    /** Día que se está mirando (hoy o uno pasado) y lo registrado ese día. */
+    viewDay: String = Dates.todayKey(),
+    dayLogs: List<LogEntry> = emptyList(),
+    onSelectDay: (String) -> Unit = {},
+    onAddExercise: () -> Unit = {},
+    onOpenAchievements: () -> Unit = {},
 ) {
     val me = s.me ?: return
     val myColor = Color(me.profile.color)
+    val isToday = viewDay == Dates.todayKey()
+    val editable = isEditableDay(viewDay)
+    val day = if (isToday) me.today
+    else me.days.firstOrNull { it.dayKey == viewDay }
+        ?: com.ositos.fitness.domain.DayStats(me.profile.uid, viewDay, goalKcal = me.profile.goalKcal)
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -83,9 +94,11 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item { Header(s, me) }
-        item { StoriesBar(s, stories, storyUploading, onAddStory, onOpenStories) }
+        // Arriba de las historias: los últimos 7 días + calendario, para revisar o completar.
+        item { DayStrip(viewDay, me.doneDays, myColor, onSelectDay) }
+        if (isToday) item { StoriesBar(s, stories, storyUploading, onAddStory, onOpenStories) }
 
-        if (s.coupleAtRisk) item {
+        if (isToday && s.coupleAtRisk) item {
             GameCard(accent = OsitoColors.Fire) {
                 Text("🔥 La racha de los dos en peligro", style = MaterialTheme.typography.titleMedium)
                 Text(
@@ -101,7 +114,7 @@ fun HomeScreen(
         }
 
         val dow = Dates.today().dayOfWeek
-        if (dow == DayOfWeek.SUNDAY || dow == DayOfWeek.MONDAY) item {
+        if (isToday && (dow == DayOfWeek.SUNDAY || dow == DayOfWeek.MONDAY)) item {
             GameCard(accent = OsitoColors.Purple, onClick = onOpenWrapped) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("🎁", fontSize = 32.sp)
@@ -117,27 +130,50 @@ fun HomeScreen(
         item {
             GameCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Hoy", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    Pill("+${Xp.forDay(me.today)} XP", myColor)
+                    Text(
+                        if (isToday) "Hoy" else dayTitle(viewDay).substringBefore(" ·"),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (Xp.dayDone(day)) Pill("✅ cumplido", OsitoColors.Good)
+                    Spacer(Modifier.width(6.dp))
+                    Pill("+${Xp.forDay(day)} XP", myColor)
                 }
                 Spacer(Modifier.height(8.dp))
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    KcalRing(me.today.kcalIn, me.today.goalKcal, me.today.kcalOut, myColor)
+                    KcalRing(day.kcalIn, day.goalKcal, day.kcalOut, myColor)
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                    MiniStat("🍽️", "${me.today.kcalIn}", "comido")
-                    MiniStat("🔥", "${me.today.kcalOut}", "ejercicio")
-                    MiniStat("🎯", "${me.today.goalKcal}", "meta")
+                    MiniStat("🍽️", "${day.kcalIn}", "comido")
+                    MiniStat("🔥", "${day.kcalOut}", "ejercicio")
+                    MiniStat("🎯", "${day.goalKcal}", "meta")
                 }
                 Spacer(Modifier.height(12.dp))
-                WaterRow(me.today.water, onWater)
+                if (editable) WaterRow(day.water, onWater)
+                else Text("💧 ${day.water} vasos de agua", style = MaterialTheme.typography.titleSmall)
             }
         }
 
-        item { MealDiaryCard(s, onAddMeal, onDeleteLog, onChefIdea) }
+        item { MealDiaryCard(s, day, dayLogs, editable, onAddMeal, onDeleteLog, onChefIdea, onAddExercise) }
 
+        if (!isToday) {
+            item {
+                BouncyButton(
+                    "Volver a hoy",
+                    { onSelectDay(Dates.todayKey()) },
+                    Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    emoji = "↩️",
+                )
+            }
+            return@LazyColumn
+        }
+
+        item { FatBurnCard(me) }
         item { QuestsCard(s, compact = true) }
+        item { NextAchievementsCard(s, me, onOpenAchievements) }
 
         item { SectionTitle("Vos | ${s.partner?.name ?: "Tu compa"}") }
         item { SplitView(s, onPoke, isSolo, onFindPartner) }

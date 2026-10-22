@@ -48,6 +48,11 @@ import com.ositos.fitness.domain.Dates
 import com.ositos.fitness.ui.DuoState
 import com.ositos.fitness.ui.components.Avatar
 import com.ositos.fitness.ui.components.Haptics
+import com.ositos.fitness.ui.theme.OsitoColors
+import com.ositos.fitness.domain.Xp
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.Flow
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -56,9 +61,20 @@ val REACTIONS = listOf("👏", "🔥", "💪", "😂", "❤️")
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TimelineScreen(s: DuoState, padding: PaddingValues, onReact: (LogEntry, String) -> Unit, onDelete: (LogEntry) -> Unit) {
+fun TimelineScreen(
+    s: DuoState,
+    padding: PaddingValues,
+    logsFor: (String) -> Flow<List<LogEntry>>,
+    onReact: (LogEntry, String) -> Unit,
+    onDelete: (LogEntry, List<LogEntry>) -> Unit,
+) {
     var toDelete by remember { mutableStateOf<LogEntry?>(null) }
-    val grouped = s.logs.groupBy { it.dayKey }
+    var day by rememberSaveable { mutableStateOf(Dates.todayKey()) }
+    val dayLogs by remember(day) { logsFor(day) }.collectAsStateWithLifecycle(emptyList())
+    val entries = dayLogs.sortedBy { it.ts }
+    val date = runCatching { LocalDate.parse(day) }.getOrDefault(LocalDate.now())
+    val me = s.me
+    val accent = me?.profile?.color?.let { Color(it) } ?: MaterialTheme.colorScheme.primary
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -71,24 +87,41 @@ fun TimelineScreen(s: DuoState, padding: PaddingValues, onReact: (LogEntry, Stri
         item {
             Text("Historial", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(4.dp))
         }
-        if (s.logs.isEmpty()) item {
+        item { DayStrip(day, me?.doneDays ?: emptySet(), accent) { day = it } }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = { day = Dates.key(date.minusDays(1)) }) { Text("‹ Día anterior") }
+                if (date.isBefore(LocalDate.now())) {
+                    TextButton(onClick = { day = Dates.key(date.plusDays(1)) }) { Text("Día siguiente ›") }
+                }
+            }
+        }
+        item { DaySummary(s, day) }
+        if (entries.isEmpty()) item {
             Text(
-                "Todavía no hay nada. ¡El primero que registra algo gana el honor! 🏅",
+                if (day == Dates.todayKey()) "Todavía no hay nada hoy. ¡El primero que registra algo gana el honor! 🏅"
+                else "Ese día no hay registros 🦗",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(32.dp),
             )
         }
-        grouped.forEach { (day, entries) ->
-            item(key = "h_$day") { DayHeader(day) }
-            items(entries, key = { it.id }) { e ->
-                Bubble(
-                    e, s,
-                    mine = e.uid == s.myUid,
-                    onReact = { onReact(e, it) },
-                    onLongPress = { if (e.uid == s.myUid && e.type in deletable) toDelete = e },
-                )
-            }
+        items(entries, key = { it.id }) { e ->
+            Bubble(
+                e, s,
+                mine = e.uid == s.myUid,
+                onReact = { onReact(e, it) },
+                onLongPress = { if (e.uid == s.myUid && e.type in deletable) toDelete = e },
+            )
+        }
+        if (entries.any { it.uid == s.myUid && it.type in deletable }) item {
+            Text(
+                "Mantené apretado un registro tuyo para borrarlo.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
     toDelete?.let { e ->
@@ -96,34 +129,48 @@ fun TimelineScreen(s: DuoState, padding: PaddingValues, onReact: (LogEntry, Stri
             onDismissRequest = { toDelete = null },
             title = { Text("¿Borrar registro?") },
             text = { Text("\"${e.title}\" se va a borrar y se descuenta del día.") },
-            confirmButton = { TextButton(onClick = { onDelete(e); toDelete = null }) { Text("Borrar") } },
+            confirmButton = { TextButton(onClick = { onDelete(e, dayLogs); toDelete = null }) { Text("Borrar") } },
             dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Cancelar") } },
         )
     }
 }
 
-private val deletable = setOf(LogType.MEAL, LogType.EXERCISE, LogType.WEIGHT)
-
+/** Resumen del día de los dos: comido, quemado, agua, XP y si cumplieron. */
 @Composable
-private fun DayHeader(dayKey: String) {
-    val date = runCatching { LocalDate.parse(dayKey) }.getOrNull()
-    val label = when (date) {
-        null -> dayKey
-        LocalDate.now() -> "Hoy"
-        LocalDate.now().minusDays(1) -> "Ayer"
-        else -> Dates.prettyLong(date).replaceFirstChar { it.uppercase() }
-    }
-    Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-        )
+private fun DaySummary(s: DuoState, day: String) {
+    val people = listOfNotNull(s.me, s.partner)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        people.forEach { p ->
+            val d = p.days.firstOrNull { it.dayKey == day }
+            val c = Color(p.profile.color)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(c.copy(alpha = 0.14f))
+                    .padding(12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(p.profile.avatar, c, 30.dp, ring = false)
+                    Spacer(Modifier.width(6.dp))
+                    Text(p.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, modifier = Modifier.weight(1f))
+                    if (d != null && Xp.dayDone(d)) Text("✅")
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("🍽️ ${d?.kcalIn ?: 0} kcal", style = MaterialTheme.typography.bodySmall)
+                Text("🔥 ${d?.kcalOut ?: 0} kcal quemadas", style = MaterialTheme.typography.bodySmall)
+                Text("💧 ${d?.water ?: 0} vasos", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "⭐ +${d?.let { Xp.forDay(it) } ?: 0} XP",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = c,
+                )
+            }
+        }
     }
 }
+
+private val deletable = setOf(LogType.MEAL, LogType.EXERCISE, LogType.WEIGHT)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -176,12 +223,34 @@ private fun Bubble(e: LogEntry, s: DuoState, mine: Boolean, onReact: (String) ->
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            typeLabel(e.type)?.let { (label, c) ->
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c,
+                    modifier = Modifier
+                        .padding(vertical = 3.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(c.copy(alpha = 0.16f))
+                        .padding(horizontal = 8.dp, vertical = 1.dp),
+                )
+            }
             Text(title, style = MaterialTheme.typography.titleSmall)
             if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(6.dp))
             ReactionsRow(e, s, canReact = !mine, onReact = onReact)
         }
     }
+}
+
+private fun typeLabel(t: LogType): Pair<String, Color>? = when (t) {
+    LogType.MEAL -> "COMIDA" to OsitoColors.Orange
+    LogType.EXERCISE -> "EJERCICIO" to OsitoColors.Mint
+    LogType.WEIGHT -> "PESO" to OsitoColors.Purple
+    LogType.MEASURE -> "MEDIDAS" to OsitoColors.Yellow
+    LogType.POKE -> "PINCHAZO" to OsitoColors.Pink
+    LogType.ACHIEVEMENT -> "LOGRO" to OsitoColors.Yellow
+    LogType.DUEL -> "DUELO" to OsitoColors.Fire
 }
 
 @Composable

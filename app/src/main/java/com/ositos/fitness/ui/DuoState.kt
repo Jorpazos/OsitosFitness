@@ -11,6 +11,7 @@ import com.ositos.fitness.domain.AchievementContext
 import com.ositos.fitness.domain.DayStats
 import com.ositos.fitness.domain.Dates
 import com.ositos.fitness.domain.Eta
+import com.ositos.fitness.domain.FatBurn
 import com.ositos.fitness.domain.Games
 import com.ositos.fitness.data.MeasureEntry
 import com.ositos.fitness.domain.GoalType
@@ -46,6 +47,13 @@ data class PersonSummary(
     val flashWins: Int = 0,
     /** Días en que subió una historia. */
     val storyDays: Set<Long> = emptySet(),
+    /** Gasto diario estimado (TDEE) con el peso actual. */
+    val tdee: Int = 2000,
+    /** Grasa estimada por déficit: acumulada (días terminados) y de esta semana (días terminados). */
+    val fatKg: Double = 0.0,
+    val weekFatKg: Double = 0.0,
+    /** Déficit de hoy hasta ahora (null si todavía no cargó comidas). */
+    val todayDeficit: Int? = null,
 ) {
     val name get() = profile.nickname.ifBlank { "Osito" }
     val budget get() = today.goalKcal + today.kcalOut
@@ -118,7 +126,17 @@ object Summaries {
         val partnerDays = allDays.filter { it.uid == partnerUid }.associateBy { it.dayKey }
         val todayStats = days.firstOrNull { it.dayKey == todayKey }
             ?: DayStats(profile.uid, todayKey, goalKcal = profile.goalKcal)
-        val totalXp = days.sumOf { Games.dayXp(it, partnerDays[it.dayKey], today) }
+        val currentKg = allWeights.filter { it.uid == profile.uid }.maxByOrNull { it.dayKey }?.kg ?: profile.weightKg
+        val tdee = HealthCalculator.tdee(
+            HealthCalculator.bmr(profile.sex, currentKg, profile.heightCm, profile.age), profile.activity,
+        ).toInt()
+        val finished = days.filter { it.epochDay < todayEpoch }
+        val fatKg = FatBurn.totalKg(finished, tdee)
+        val weekKeysForFat = Dates.weekDays(today).map { Dates.key(it) }.toSet()
+        val weekFatKg = FatBurn.totalKg(finished.filter { it.dayKey in weekKeysForFat }, tdee)
+        // Premio: cada kilo de grasa quemado suma XP.
+        val totalXp = days.sumOf { Games.dayXp(it, partnerDays[it.dayKey], today) } +
+            FatBurn.milestones(fatKg) * FatBurn.XP_PER_KG
         val doneDays = days.filter { Xp.dayDone(it) }.map { it.epochDay }.toSet()
         val weekKeys = Dates.weekDays(today).map { Dates.key(it) }.toSet()
         val weekXp = days.filter { it.dayKey in weekKeys }.sumOf { Games.dayXp(it, partnerDays[it.dayKey], today) }
@@ -153,6 +171,10 @@ object Summaries {
             questDays = days.count { Games.allQuestsDone(it) },
             flashWins = flashWins,
             storyDays = days.filter { it.story }.map { it.epochDay }.toSet(),
+            tdee = tdee,
+            fatKg = fatKg,
+            weekFatKg = weekFatKg,
+            todayDeficit = FatBurn.dayDeficit(todayStats.copy(goalKcal = profile.goalKcal), tdee),
         )
     }
 
@@ -213,6 +235,7 @@ object Summaries {
         storyDays = p.storyDays.size,
         bestStoryStreak = s.bestStoryStreak,
         fullDiaryDays = p.days.count { it.meals >= MealSlot.entries.size },
+        fatKg = p.fatKg,
     )
 
     fun build(

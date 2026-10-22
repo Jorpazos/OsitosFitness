@@ -84,6 +84,7 @@ import com.ositos.fitness.domain.MealSlot
 import com.ositos.fitness.domain.Portions
 import com.ositos.fitness.ui.PhotoState
 import com.ositos.fitness.ui.components.BouncyButton
+import com.ositos.fitness.ui.components.FillBar
 import com.ositos.fitness.ui.components.Haptics
 import com.ositos.fitness.ui.components.Pill
 import com.ositos.fitness.ui.theme.OsitoColors
@@ -99,6 +100,8 @@ fun LogSheetHost(
     sheet: Sheet?,
     onDismiss: () -> Unit,
     onSelect: (Sheet) -> Unit,
+    /** Si se está cargando en un día pasado, se avisa arriba ("📅 Cargando en: …"). */
+    dayLabel: String? = null,
     content: @Composable (Sheet) -> Unit,
 ) {
     if (sheet == null) return
@@ -111,7 +114,13 @@ fun LogSheetHost(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 16.dp),
         ) {
-            if (sheet == Sheet.MENU) MenuSheet(onSelect) else content(sheet)
+            Column {
+                if (dayLabel != null) {
+                    Pill(dayLabel, OsitoColors.Purple)
+                    Spacer(Modifier.height(10.dp))
+                }
+                if (sheet == Sheet.MENU) MenuSheet(onSelect) else content(sheet)
+            }
         }
     }
 }
@@ -124,7 +133,7 @@ private fun MenuSheet(onSelect: (Sheet) -> Unit) {
         Spacer(Modifier.height(14.dp))
         val options = listOf(
             Triple(Sheet.MEAL, "🍽️", "Comida") to OsitoColors.Orange,
-            Triple(Sheet.PHOTO, "📸", "Foto IA") to OsitoColors.Pink,
+            Triple(Sheet.PHOTO, "🤖", "Con IA") to OsitoColors.Pink,
             Triple(Sheet.EXERCISE, "💪", "Ejercicio") to OsitoColors.Mint,
             Triple(Sheet.WEIGHT, "⚖️", "Peso") to OsitoColors.Purple,
         )
@@ -521,6 +530,7 @@ fun PhotoSheet(
     initialSlot: MealSlot,
     onAnalyze: (Uri) -> Unit,
     onReset: () -> Unit,
+    onAnalyzeText: (String) -> Unit = {},
     onSave: (name: String, kcal: Int, detail: String, slot: MealSlot) -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -538,9 +548,10 @@ fun PhotoSheet(
         camera.launch(uri)
     }
     val canUse = usedToday < AiRepository.DAILY_LIMIT
+    var description by rememberSaveable { mutableStateOf("") }
 
     Column(Modifier.verticalScroll(rememberScrollState())) {
-        Text("Foto con IA 📸", style = MaterialTheme.typography.headlineSmall)
+        Text("Comida con IA 🤖", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Estimación aproximada. Podés corregir todo antes de guardar. (${usedToday}/${AiRepository.DAILY_LIMIT} hoy)",
             style = MaterialTheme.typography.bodySmall,
@@ -559,9 +570,29 @@ fun PhotoSheet(
                         gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }
                 }
+                Spacer(Modifier.height(14.dp))
+                // O contarle con palabras: "2 empanadas de carne y una coca chica".
+                Text("✍️ …o escribí lo que comiste", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it.take(300) },
+                    placeholder = { Text("Ej: 2 empanadas de carne, una coca chica y un flan") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                BouncyButton(
+                    "Calcular con IA",
+                    { Haptics.tick(ctx); onAnalyzeText(description) },
+                    Modifier.fillMaxWidth(),
+                    enabled = canUse && description.isNotBlank(),
+                    color = OsitoColors.Orange,
+                    emoji = "🤖",
+                )
                 if (!canUse) {
                     Spacer(Modifier.height(10.dp))
-                    Text("Llegaste al límite de fotos de hoy. Mañana más 📸", style = MaterialTheme.typography.bodyMedium)
+                    Text("Llegaste al límite de la IA por hoy. Mañana más 📸", style = MaterialTheme.typography.bodyMedium)
                 }
             }
             PhotoState.Analyzing -> Analyzing()
@@ -655,7 +686,7 @@ private fun EditableResult(
     }
     Spacer(Modifier.height(8.dp))
     if (items.isEmpty()) {
-        Text("No reconocí comida en la foto 🤔. Cargala a mano o probá otra.", style = MaterialTheme.typography.bodyMedium)
+        Text("No reconocí comida 🤔. Cargala a mano o probá de nuevo.", style = MaterialTheme.typography.bodyMedium)
     }
     items.forEachIndexed { idx, f ->
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
@@ -807,8 +838,7 @@ fun ExerciseSheet(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Text("${minutes.roundToInt()} minutos", style = MaterialTheme.typography.titleMedium)
-            Slider(value = minutes, onValueChange = { minutes = (it / 5).roundToInt() * 5f }, valueRange = 5f..180f)
+            DurationPicker(minutes.roundToInt()) { minutes = it.toFloat() }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.size(64.dp).clip(CircleShape).background(OsitoColors.Fire.copy(alpha = 0.15f)),
@@ -824,6 +854,9 @@ fun ExerciseSheet(
                     )
                 }
             }
+            // Barrita de fuego: llena con ~600 kcal (una buena sesión), así 30 min ya se notan.
+            Spacer(Modifier.height(8.dp))
+            FillBar(kcal / 600f, OsitoColors.Fire, height = 12.dp)
             Spacer(Modifier.height(14.dp))
             BouncyButton(
                 "Guardar", onClick = {
@@ -831,6 +864,55 @@ fun ExerciseSheet(
                 },
                 modifier = Modifier.fillMaxWidth(), color = OsitoColors.Mint, emoji = "💪",
             )
+        }
+    }
+}
+
+/** "0:30 h", "1:15 h". */
+private fun hm(minutes: Int) = "%d:%02d h".format(minutes / 60, minutes % 60)
+
+// El deslizador no es lineal: el 60 % del recorrido es de 5 a 60 min (lo más común) y el resto
+// llega hasta 3 h. Así 30 o 45 minutos se marcan fácil con el dedo.
+private fun sliderToMinutes(p: Float): Int {
+    val m = if (p <= 0.6f) 5f + 55f * (p / 0.6f) else 60f + 120f * ((p - 0.6f) / 0.4f)
+    return ((m / 5f).roundToInt() * 5).coerceIn(5, 180)
+}
+
+private fun minutesToSlider(m: Int): Float =
+    if (m <= 60) ((m - 5) / 55f * 0.6f).coerceIn(0f, 0.6f) else (0.6f + (m - 60) / 120f * 0.4f).coerceIn(0.6f, 1f)
+
+/** Duración de 5 min a 3 h: botones rápidos, − / + de a 5 min y deslizador. */
+@Composable
+private fun DurationPicker(minutes: Int, onChange: (Int) -> Unit) {
+    val ctx = LocalContext.current
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+        Stepper("−") { Haptics.tick(ctx); onChange((minutes - 5).coerceAtLeast(5)) }
+        Spacer(Modifier.width(18.dp))
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(hm(minutes), style = MaterialTheme.typography.displaySmall)
+            Text("$minutes minutos", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(18.dp))
+        Stepper("+") { Haptics.tick(ctx); onChange((minutes + 5).coerceAtMost(180)) }
+    }
+    Spacer(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally), modifier = Modifier.fillMaxWidth()) {
+        listOf(15 to "15′", 30 to "30′", 45 to "45′", 60 to "1 h", 90 to "1½ h", 120 to "2 h").forEach { (q, label) ->
+            Pill(
+                label,
+                if (q == minutes) OsitoColors.Mint else OsitoColors.Purple,
+                Modifier.clickable { Haptics.tick(ctx); onChange(q) },
+            )
+        }
+    }
+    Slider(
+        value = minutesToSlider(minutes),
+        onValueChange = { onChange(sliderToMinutes(it)) },
+        valueRange = 0f..1f,
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        listOf("5′", "30′", "1 h", "2 h", "3 h").forEach {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

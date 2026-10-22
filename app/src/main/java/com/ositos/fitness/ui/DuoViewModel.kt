@@ -45,7 +45,7 @@ sealed interface UiEvent {
     data class XpGained(val amount: Int) : UiEvent
     data class AchievementUnlocked(val achievement: Achievement) : UiEvent
     data class LevelUp(val level: Level) : UiEvent
-    data class PokeReceived(val fromName: String, val message: String) : UiEvent
+    data class PokeReceived(val fromName: String, val message: String, val milestone: Boolean = false) : UiEvent
     data object Confetti : UiEvent
 }
 
@@ -88,6 +88,7 @@ class DuoViewModel(
      */
     private val prefs = app.getSharedPreferences("ositos", Context.MODE_PRIVATE)
     private val levelKey = "level_seen_${myUid}_${repo.duoId ?: "-"}"
+    private val fatKey = "fat_kg_seen_${myUid}_${repo.duoId ?: "-"}"
     private val unlocking = mutableSetOf<String>()
     private val closingWeeks = mutableSetOf<String>()
 
@@ -128,7 +129,9 @@ class DuoViewModel(
                 val s = _state.value
                 val muted = (s.me?.profile?.pokesMutedUntil ?: 0) > System.currentTimeMillis()
                 pokes.forEach { poke ->
-                    if (!muted) _events.tryEmit(UiEvent.PokeReceived(s.nameOf(poke.from), poke.message))
+                    if (!muted || poke.isMilestone) {
+                        _events.tryEmit(UiEvent.PokeReceived(s.nameOf(poke.from), poke.message, poke.isMilestone))
+                    }
                     runCatching { repo.markPokeDelivered(poke.id) }
                 }
             }
@@ -143,6 +146,7 @@ class DuoViewModel(
         if (!s.dataReady) return
 
         checkLevelUp(me)
+        checkFatMilestone(me, s)
 
         // Logros
         val ctx = Summaries.achievementContext(me, s, s.duo)
@@ -161,6 +165,33 @@ class DuoViewModel(
 
         // Cierre de duelos de semanas anteriores
         if (s.partner != null) closePastWeeks(s)
+    }
+
+    /**
+     * Cada kilo de grasa "quemado" (por déficit acumulado): festejo, +XP (va en el total) y aviso
+     * a tu compa. Una sola vez por kilo.
+     */
+    private fun checkFatMilestone(me: PersonSummary, s: DuoState) {
+        val kg = com.ositos.fitness.domain.FatBurn.milestones(me.fatKg)
+        val seen = prefs.getInt(fatKey, -1)
+        if (seen < 0) {
+            prefs.edit().putInt(fatKey, kg).apply()
+            return
+        }
+        if (kg <= seen) return
+        prefs.edit().putInt(fatKey, kg).apply()
+        _events.tryEmit(UiEvent.XpGained(com.ositos.fitness.domain.FatBurn.XP_PER_KG))
+        _events.tryEmit(UiEvent.Toast("🔥 ¡Llegaste a ~$kg kg de grasa quemada! +${com.ositos.fitness.domain.FatBurn.XP_PER_KG} XP"))
+        _events.tryEmit(UiEvent.Confetti)
+        val partner = s.partner ?: return
+        viewModelScope.launch {
+            runCatching {
+                repo.sendMilestone(
+                    partner.profile.uid, me.name,
+                    "🔥 ${me.name} llegó a ~$kg kg de grasa quemada con su déficit. ¡Felicitalo/a!",
+                )
+            }
+        }
     }
 
     /** Festeja la subida de nivel una sola vez (aunque haya pasado con la app cerrada). */
@@ -225,27 +256,46 @@ class DuoViewModel(
     private fun mealKey(dayKey: String, slot: MealSlot) = "${dayKey}_${slot.name}"
 
     /** ¿Es lo primero que se carga hoy en esa comida? (solo eso suma una "comida" y XP). */
-    private fun claimNewMeal(slot: MealSlot): Boolean {
-        val key = mealKey(Dates.todayKey(), slot)
-        val empty = _state.value.mealsOf(myUid)[slot].isNullOrEmpty()
+    private fun claimNewMeal(slot: MealSlot, dayKey: String = Dates.todayKey(), slotHasEntries: Boolean? = null): Boolean {
+        val key = mealKey(dayKey, slot)
+        val empty = !(slotHasEntries ?: _state.value.mealsOf(myUid, dayKey)[slot].orEmpty().isNotEmpty())
         val isNew = empty && key !in countedMeals
         if (isNew) countedMeals += key
         return isNew
     }
 
     /** Agrega un alimento a una comida (desayuno, almuerzo…). Dos huevos = 1 comida, no 2. */
-    fun addMeal(name: String, kcal: Int, detail: String = "", emoji: String = "🍽️", slot: MealSlot = MealSlot.now()) {
-        val newMeal = claimNewMeal(slot)
-        val xp = if (newMeal) xpIfMeal() else 0
-        launchAction(xp) {
+    /**
+     * [dayKey]: el día al que va (hoy o uno de los últimos 7, por si te olvidaste de cargar algo).
+     * [slotHasEntries]: si esa comida ya tenía algo (lo sabe la pantalla del día).
+     */
+    fun addMeal(
+        name: String,
+        kcal: Int,
+        detail: String = "",
+        emoji: String = "🍽️",
+        slot: MealSlot = MealSlot.now(),
+        dayKey: String = Dates.todayKey(),
+        slotHasEntries: Boolean? = null,
+    ) {
+        val newMeal = claimNewMeal(slot, dayKey, slotHasEntries)
+        val isToday = dayKey == Dates.todayKey()
+        val xp = if (newMeal && isToday) xpIfMeal() else 0
+        launchAction(xp, success = if (isToday) null else "Cargado en ${prettyDay(dayKey)} ✅") {
             try {
-                repo.addMeal(name.ifBlank { "Comida" }, kcal, detail, emoji, goal, slot, newMeal)
+                repo.addMeal(name.ifBlank { "Comida" }, kcal, detail, emoji, goal, slot, newMeal, dayKey)
             } catch (e: Exception) {
-                if (newMeal) countedMeals -= mealKey(Dates.todayKey(), slot)
+                if (newMeal) countedMeals -= mealKey(dayKey, slot)
                 throw e
             }
         }
     }
+
+    private fun prettyDay(dayKey: String) = runCatching { Dates.prettyLong(java.time.LocalDate.parse(dayKey)) }.getOrDefault(dayKey)
+
+    /** Registros de un día puntual (para el Inicio en días pasados y el Historial). */
+    fun logsForDay(dayKey: String): kotlinx.coroutines.flow.Flow<List<LogEntry>> =
+        repo.logsOfDayFlow(dayKey).catch { emit(emptyList()) }
 
     /** Carga de una todos los alimentos de una idea del Osito Chef. */
     fun addChefIdea(idea: OsitoChef.Idea, slot: MealSlot) {
@@ -258,8 +308,12 @@ class DuoViewModel(
         }
     }
 
-    fun addExercise(name: String, kcal: Int, detail: String, emoji: String) =
-        launchAction(xpIfExercise()) { repo.addExercise(name, kcal, detail, emoji, goal) }
+    fun addExercise(name: String, kcal: Int, detail: String, emoji: String, dayKey: String = Dates.todayKey()) {
+        val isToday = dayKey == Dates.todayKey()
+        launchAction(if (isToday) xpIfExercise() else 0, success = if (isToday) null else "Cargado en ${prettyDay(dayKey)} ✅") {
+            repo.addExercise(name, kcal, detail, emoji, goal, dayKey)
+        }
+    }
 
     fun addWeight(kg: Double) {
         val me = _state.value.me ?: return
@@ -276,17 +330,21 @@ class DuoViewModel(
         launchAction(xp, success = "📏 Medidas guardadas") { repo.addMeasures(m, goal) }
     }
 
-    fun addWater(delta: Int = 1) {
-        val current = _state.value.me?.today?.water ?: 0
+    fun addWater(delta: Int = 1, dayKey: String = Dates.todayKey()) {
+        val me = _state.value.me
+        val current = me?.days?.firstOrNull { it.dayKey == dayKey }?.water ?: 0
         if (delta < 0 && current <= 0) return
-        val xp = if (delta > 0 && current < Xp.MAX_WATER) Xp.PER_WATER else 0
-        launchAction(xp) { repo.addWater(delta, goal) }
+        val xp = if (delta > 0 && current < Xp.MAX_WATER && dayKey == Dates.todayKey()) Xp.PER_WATER else 0
+        launchAction(xp) { repo.addWater(delta, goal, dayKey) }
     }
 
-    fun deleteLog(entry: LogEntry) {
+    /** [dayLogs]: lo registrado ese día (si la pantalla lo tiene), para saber si era lo último de esa comida. */
+    fun deleteLog(entry: LogEntry, dayLogs: List<LogEntry>? = null) {
         // En comidas: solo se descuenta "una comida" si era lo último cargado en esa comida.
+        val sameDay = dayLogs?.filter { it.uid == entry.uid && it.type == LogType.MEAL }
+            ?: _state.value.mealsOf(entry.uid, entry.dayKey).values.flatten()
         val lastOfMeal = entry.type != LogType.MEAL ||
-            _state.value.mealsOf(entry.uid, entry.dayKey)[entry.mealSlot].orEmpty().none { it.id != entry.id }
+            sameDay.none { it.id != entry.id && it.mealSlot == entry.mealSlot }
         if (entry.type == LogType.MEAL && lastOfMeal) countedMeals -= mealKey(entry.dayKey, entry.mealSlot)
         launchAction(success = "Borrado 🗑️") { repo.deleteLog(entry, lastOfMeal) }
     }
@@ -359,6 +417,19 @@ class DuoViewModel(
                 PhotoState.Result(ai.analyze(uri))
             } catch (e: Exception) {
                 PhotoState.Error(e.message ?: "No pude analizar la foto")
+            }
+        }
+    }
+
+    /** "Contale a la IA qué comiste": misma estimación que con la foto, pero escrita. */
+    fun analyzeText(text: String) {
+        if (text.isBlank()) return
+        _photo.value = PhotoState.Analyzing
+        viewModelScope.launch {
+            _photo.value = try {
+                PhotoState.Result(ai.analyzeText(text))
+            } catch (e: Exception) {
+                PhotoState.Error(e.message ?: "No pude estimar la comida")
             }
         }
     }
