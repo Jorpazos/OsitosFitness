@@ -196,8 +196,15 @@ class AiRepository(private val context: Context) {
             }
         }
         val busy = errors.any { "demand" in it.lowercase() || "overloaded" in it.lowercase() || "503" in it }
+        val appCheck = errors.any { "app check" in it.lowercase() }
         throw Exception(
-            if (busy) {
+            if (appCheck) {
+                // En la consola de Firebase se activó "Aplicar" (enforce) de App Check para la IA:
+                // esta app se instala por APK (no desde Play Store), así que no puede pasar ese control.
+                "La IA está bloqueada por App Check en Firebase. Quien administra la app tiene que entrar a " +
+                    "Firebase → App Check → APIs → Firebase AI Logic y tocar \"Dejar de aplicar\". " +
+                    "Mientras tanto, cargala a mano 🍽️"
+            } else if (busy) {
                 "Gemini está saturado en este momento (pasa a veces con la versión gratis). " +
                     "Probá de nuevo en unos minutos o cargala a mano 🍽️"
             } else {
